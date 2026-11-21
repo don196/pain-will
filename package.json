@@ -1,0 +1,15 @@
+{
+  "name": "pain-will",
+  "private": true,
+  "description": "Полигон подземелья: тестовое поле боевой системы «Боль и Воля»",
+  "type": "commonjs",
+  "scripts": {
+    "build": "python3 build/build.py",
+    "test": "node tests/smoke.mjs",
+    "sim": "node sim/run.mjs",
+    "serve": "python3 -m http.server 8000 -d dist"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

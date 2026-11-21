@@ -1,0 +1,52 @@
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <h1>Полигон подземелья</h1>
+      <span class="sub">проверка боевых правил</span>
+    </div>
+    <div class="scene">
+      <label for="scn">Сцена</label>
+      <select id="scn"></select>
+      <button id="btnRestart" type="button" title="Начать сцену заново">Сначала</button>
+    </div>
+    <nav class="tools" aria-label="Инструменты">
+      <button id="btnEditor" type="button">Редактор</button>
+      <button id="btnOdds" type="button">Шансы</button>
+      <button id="btnSim" type="button">Симуляция</button>
+      <button id="btnRules" type="button">Правила</button>
+      <button id="btnData" type="button">Бойцы и оружие</button>
+      <button id="btnNotes" type="button">Допущения</button>
+    </nav>
+  </header>
+  <main class="layout">
+    <aside class="rail">
+      <div id="roster"></div>
+      <details class="scene-card" id="sceneCard" open><summary>О сцене</summary><div id="sceneInfo"></div></details>
+    </aside>
+    <section class="center">
+      <div class="ctx" id="ctx"></div>
+      <div class="board-wrap" id="wrap">
+        <div id="board">
+          <canvas id="floor"></canvas>
+          <canvas id="light"></canvas>
+          <svg id="hl" xmlns="http://www.w3.org/2000/svg"></svg>
+          <div id="toks"></div>
+          <div id="fc"></div>
+          <div id="fx"></div>
+          <div id="banner" class="banner" hidden></div>
+        </div>
+      </div>
+      <div class="dock">
+        <section id="acts" aria-label="Действия"></section>
+      </div>
+    </section>
+    <aside class="side">
+      <section class="sheet" id="card"></section>
+      <section class="logbox">
+        <div class="loghead"><h2>Журнал</h2>
+          <div class="logf" id="logf"><button type="button" data-f="all">Всё</button><button type="button" data-f="atk">Броски</button><button type="button" data-f="ev">События</button><button type="button" data-f="mv">Ходы</button><button id="btnClearLog" type="button" title="Очистить журнал" aria-label="Очистить журнал">✕</button></div></div>
+        <div id="log" aria-live="polite"></div>
+      </section>
+    </aside>
+  </main>
+</div>
