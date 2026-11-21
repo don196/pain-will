@@ -1,7 +1,21 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Полигон подземелья 3.0</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Martian+Mono:wght@400;600&family=Oranienbaum&family=Sofia+Sans:wght@400;500;600;700&family=Sofia+Sans+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+/*STYLES*/
+</style>
+</head>
+<body>
 <div class="app">
   <header class="top">
     <div class="brand">
-      <h1>Полигон подземелья</h1>
+      <h1>Полигон подземелья<span class="ver">3.0</span></h1>
       <span class="sub">проверка боевых правил</span>
     </div>
     <div class="scene">
@@ -15,13 +29,12 @@
       <button id="btnSim" type="button">Симуляция</button>
       <button id="btnRules" type="button">Правила</button>
       <button id="btnData" type="button">Бойцы и оружие</button>
-      <button id="btnNotes" type="button">Допущения</button>
+      <button id="btnNotes" type="button">Как считает</button>
     </nav>
   </header>
   <main class="layout">
     <aside class="rail">
       <div id="roster"></div>
-      <details class="scene-card" id="sceneCard" open><summary>О сцене</summary><div id="sceneInfo"></div></details>
     </aside>
     <section class="center">
       <div class="ctx" id="ctx"></div>
@@ -30,6 +43,7 @@
           <canvas id="floor"></canvas>
           <canvas id="light"></canvas>
           <svg id="hl" xmlns="http://www.w3.org/2000/svg"></svg>
+          <svg id="links" xmlns="http://www.w3.org/2000/svg"></svg>
           <div id="toks"></div>
           <div id="fc"></div>
           <div id="fx"></div>
@@ -42,6 +56,7 @@
     </section>
     <aside class="side">
       <section class="sheet" id="card"></section>
+      <details class="scene-card" id="sceneCard"><summary>О сцене</summary><div id="sceneInfo"></div></details>
       <section class="logbox">
         <div class="loghead"><h2>Журнал</h2>
           <div class="logf" id="logf"><button type="button" data-f="all">Всё</button><button type="button" data-f="atk">Броски</button><button type="button" data-f="ev">События</button><button type="button" data-f="mv">Ходы</button><button id="btnClearLog" type="button" title="Очистить журнал" aria-label="Очистить журнал">✕</button></div></div>
@@ -50,3 +65,13 @@
     </aside>
   </main>
 </div>
+<div id="ctxm" hidden></div>
+<div id="tip" class="tip" hidden></div>
+<div id="modal" class="overlay" hidden><div class="mbox" role="dialog" aria-modal="true" id="mbox"></div></div>
+<div id="prompt" class="overlay" hidden style="z-index:50"><div class="mbox sm" role="dialog" aria-modal="true" id="pbox"></div></div>
+
+<script>
+/*SCRIPT*/
+</script>
+</body>
+</html>

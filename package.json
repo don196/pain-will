@@ -4,12 +4,19 @@
   "description": "Полигон подземелья: тестовое поле боевой системы «Боль и Воля»",
   "type": "commonjs",
   "scripts": {
-    "build": "python3 build/build.py",
+    "build": "node build/build.mjs",
+    "typecheck": "tsc -p tsconfig.json",
     "test": "node tests/smoke.mjs",
     "sim": "node sim/run.mjs",
+    "golden": "node dist/sim.cjs golden",
+    "format": "prettier --write \"src/**/*.ts\"",
     "serve": "python3 -m http.server 8000 -d dist"
   },
   "devDependencies": {
-    "playwright": "1.63.0"
+    "@types/node": "^26.0.0",
+    "esbuild": "^0.28.0",
+    "playwright": "1.63.0",
+    "prettier": "^3.10.0",
+    "typescript": "^7.0.2"
   }
 }
