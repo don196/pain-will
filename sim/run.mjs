@@ -1,44 +1,44 @@
-// Сводка баланса: node sim/run.mjs [--n 200] [--scn dummies,dummies6] [--modes pain,hp]
-// Гоняет сценарии в обоих режимах здоровья параллельно и печатает таблицу в Markdown.
+// Таблица баланса: node sim/run.mjs [--n 200] [--scn dummies,dummies6] [--set '{"dexMode":"od"}']
+// Гоняет сценарии параллельно через dist/sim.cjs (сначала npm run build) и печатает таблицу в Markdown.
 import { execFile } from 'node:child_process';
 import { cpus } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-const dir = path.dirname(fileURLToPath(import.meta.url));
+const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
 const n = +arg('n', 200);
 const scns = arg('scn', 'dummies,dummies6').split(',');
-const modes = arg('modes', 'pain,hp').split(',');
-const MODE = { pain: { name: 'Боль', set: { pain: true } }, hp: { name: 'HP', set: { pain: false } } };
+const set = JSON.parse(arg('set', '{}'));
+const parts = Math.max(1, Math.min(cpus().length, 8));
 
+// каждый сценарий делим на части, чтобы занять все ядра
 const jobs = [];
-for (const scn of scns) for (const m of modes) jobs.push({ scn, mode: m, job: { scn, n, set: MODE[m].set } });
-
-function runOne(j) {
-  return new Promise((res, rej) => execFile('node', [path.join(dir, 'sim.js'), JSON.stringify(j.job)], { maxBuffer: 64 << 20 },
-    (err, out, errOut) => err ? rej(new Error(`${j.scn}/${j.mode}: ${errOut || err.message}`)) : res(JSON.parse(out))));
+for (const scn of scns) for (let p = 0; p < parts; p++) {
+  const k = Math.floor(n / parts) + (p < n % parts ? 1 : 0);
+  if (k) jobs.push({ scn, n: k, set });
 }
-async function pool(items, limit, fn) {
-  const out = new Array(items.length); let next = 0;
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => { while (next < items.length) { const i = next++; out[i] = await fn(items[i]); } }));
-  return out;
-}
-const mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
-const f1 = x => x.toFixed(1).replace('.', ','), f2 = x => x.toFixed(2).replace('.', ',');
+const run = job => new Promise((res, rej) => execFile('node', [path.join(root, 'dist', 'sim.cjs'), 'batch', JSON.stringify(job)], { maxBuffer: 64 << 20 },
+  (err, out, errOut) => (err ? rej(new Error(`${job.scn}: ${errOut || err.message}`)) : res(JSON.parse(out)))));
 
 const t0 = Date.now();
 let res;
-try { res = await pool(jobs, Math.max(1, cpus().length), runOne); }
-catch (e) { console.error('Симуляция упала:', e.message); process.exit(1); }
+try { res = await Promise.all(jobs.map(run)); } catch (e) { console.error('Симуляция упала:', e.message); process.exit(1); }
 
-const rows = res.map((r, i) => {
-  const j = jobs[i], c = v => (v || 0) / r.n, ps = r.ps || {};
-  return [j.scn, MODE[j.mode].name, Math.round(100 * r.over.pc / r.n) + '%', f1(mean(r.rounds)),
-    f2(c(Object.values(r.downs).reduce((a, b) => a + b, 0))), f2(c(ps.edge)), f2(c(ps.ko)), Math.round(100 * c(ps.dead)) + '%', f2(mean(r.hw))];
-});
-console.log(`### Баланс: ${n} боёв на строку\n`);
-console.log('| Сценарий | Здоровье | Победы героев | Раунды | Героев выбыло к концу | На пороге | Без сознания | Боёв со смертью героя | Ран у героев |');
-console.log('|---|---|---|---|---|---|---|---|---|');
-for (const r of rows) console.log('| ' + r.join(' | ') + ' |');
-console.log(`\n_ИИ ведёт обе стороны. «На пороге», «без сознания» и смерть бывают только в режиме Боли. ${Math.round((Date.now() - t0) / 1000)} с._`);
+const mean = a => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
+const f1 = x => x.toFixed(1).replace('.', ','), f2 = x => x.toFixed(2).replace('.', ',');
+console.log(`### Баланс: ${n} боёв на сценарий${Object.keys(set).length ? ' · настройки ' + JSON.stringify(set) : ''}\n`);
+console.log('| Сценарий | Победы героев | Раунды | Героев выбыло к концу | На пороге | Без сознания | Смертей героев | Ран у героев |');
+console.log('|---|---|---|---|---|---|---|---|');
+for (const scn of scns) {
+  const rs = res.filter((_, i) => jobs[i].scn === scn);
+  const tot = { n: 0, pc: 0, rounds: [], downs: 0, hw: [], ps: {} };
+  for (const r of rs) {
+    tot.n += r.n; tot.pc += r.over.pc; tot.rounds.push(...r.rounds); tot.hw.push(...r.hw);
+    tot.downs += Object.values(r.downs).reduce((a, b) => a + b, 0);
+    for (const [k, v] of Object.entries(r.ps)) tot.ps[k] = (tot.ps[k] || 0) + v;
+  }
+  const c = v => (v || 0) / tot.n;
+  console.log(`| ${scn} | ${Math.round((100 * tot.pc) / tot.n)}% | ${f1(mean(tot.rounds))} | ${f2(c(tot.downs))} | ${f2(c(tot.ps.edge))} | ${f2(c(tot.ps.ko))} | ${f2(c(tot.ps.dead))} | ${f2(mean(tot.hw))} |`);
+}
+console.log(`\n_ИИ ведёт обе стороны. ${Math.round((Date.now() - t0) / 1000)} с._`);

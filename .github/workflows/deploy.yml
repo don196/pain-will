@@ -27,6 +27,8 @@ jobs:
           cache: npm
       - name: Зависимости
         run: npm ci
+      - name: Проверка типов
+        run: npm run typecheck
       - name: Сборка
         run: npm run build
       - name: Браузер для проверок
