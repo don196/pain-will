@@ -59,6 +59,14 @@ export function legDodgePen(u: Unit) {
   return p;
 }
 export function interrupt(u: Unit, why) {
+  if (u.charge) {
+    if (S.stat) {
+      const st = S.stat.skillInterrupts || (S.stat.skillInterrupts = {});
+      st[u.charge.kind] = (st[u.charge.kind] || 0) + 1;
+    }
+    u.charge = null;
+    ev(`<span class="dim">${esc(u.name)}: усиленная подготовка сорвана (${why})</span>`);
+  }
   if (u.prep) {
     u.prep = null;
     ev(`<span class="dim">${esc(u.name)}: подготовка сорвана (${why})</span>`);
@@ -67,6 +75,7 @@ export function interrupt(u: Unit, why) {
 }
 export function setProne(u: Unit, why?) {
   if (u.down || u.prone) return;
+  interrupt(u, 'падение');
   u.prone = true;
   if (u.st) u.st.unst = 0;
   ev(`⤵ ${uName(u)} сбит с ног${why ? ' — ' + why : ''}: −5 к обычным атакам и активной защите, встать — 1 ОД`);
@@ -299,6 +308,7 @@ export function v2DefOptions(def: Unit, att: Unit, act: Action, opt) {
         l: 'рана руки',
         v: -2 * s,
       });
+    if (def.effects.some(e => e.type === 'bucklerOpen')) m.push({l:'Подбив баклером', v:-3});
     out.push({
       mode: 'block',
       name: 'Блок щитом',
@@ -333,6 +343,7 @@ export function v2DefOptions(def: Unit, att: Unit, act: Action, opt) {
         l: 'рана руки',
         v: -2 * s,
       });
+    if (def.effects.some(e => e.type === 'bucklerOpen')) m.push({l:'Подбив баклером', v:-3});
     out.push({
       mode: 'parry',
       name: 'Парирование',
@@ -381,6 +392,9 @@ export async function v2Defend(def: Unit, att: Unit, act: Action, total, pas, op
   }
   const o = ops.find(x => x.mode === ch);
   if (!o) return null;
+  if ((o.mode === 'parry' || o.mode === 'block') && def.effects.some(e=>e.type==='bucklerOpen')) {
+    def.effects = def.effects.filter(e=>e.type!=='bucklerOpen');
+  }
   const r = d20(),
     tot = r + o.m,
     margin = tot - total,
@@ -629,10 +643,7 @@ export async function shove(u: Unit, t, n) {
     break;
   }
   if (moved) {
-    if (t.prep) {
-      t.prep = null;
-      ev(`<span class="dim">${esc(t.name)}: подготовка сорвана (толчок)</span>`);
-    }
+    interrupt(t, 'толчок');
     const lt = t.lassoT && lassoTarget(t);
     if (lt && cheb(t, lt) > LASSO_R) releaseLasso(t, 'оттолкнули дальше длины силка');
   }
@@ -710,7 +721,7 @@ export async function shieldControl(u: Unit, to, hit) {
     if (
       e.down ||
       e.side === u.side ||
-      !tplFlag(e, 'shieldCtl') ||
+      !(tplFlag(e, 'shieldCtl') || tplFlag(e, 'bucklerCtl')) ||
       !(e.shield > 0) ||
       e.prone ||
       e.stunned ||
@@ -721,8 +732,19 @@ export async function shieldControl(u: Unit, to, hit) {
     e.pushed = e.pushed || {};
     if (e.pushed[u.id] === S.round) continue;
     if ((e.od || 0) <= 0) continue;
-    const leaving = !near1(e, to),
-      canAtk = leaving && e.zocRound !== S.round && !hit.has(e.id) && !!zocWeapon(e, u);
+    const leaving = !near1(e, to);
+    if (tplFlag(e, 'bucklerCtl')) {
+      if (!leaving || e.bucklerCtlRound === S.round || (e.od || 0) < 1) continue;
+      e.bucklerCtlRound = S.round;
+      e.pushed[u.id] = S.round;
+      e.od--;
+      hit.add(e.id);
+      if (S.stat) { const m = S.stat.skillEvents || (S.stat.skillEvents = {}); m.bucklerCtl = (m.bucklerCtl || 0) + 1; }
+      const ok = await doPush(e, u, {why:'Контроль баклером'});
+      if (ok || u.down || S.over) return false;
+      continue;
+    }
+    const canAtk = leaving && e.zocRound !== S.round && !hit.has(e.id) && !!zocWeapon(e, u);
     let ch = canAtk ? 'atk' : 'push';
     if (!isHuman(e.side) && e.od < 2 && u.hp > 2) ch = '';
     if (isHuman(e.side))
