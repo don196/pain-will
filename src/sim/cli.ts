@@ -28,15 +28,39 @@ async function fight(snap: any, seed?: number) {
 async function batch(job: { scn: string; n: number; set?: Record<string, any>; seed?: number }) {
   if (job.set) Object.assign(SET, job.set);
   const snap = parseScenario(job.scn);
-  const out = { n: 0, over: { pc: 0, en: 0, draw: 0 }, rounds: [] as number[], downs: {} as Record<string, number>, hw: [] as number[], ps: {} as Record<string, number> };
+  const out = {
+    n: 0, over: { pc: 0, en: 0, draw: 0 },
+    rounds: [] as number[], downs: {} as Record<string,number>,
+    hw: [] as number[], ps: {} as Record<string,number>,
+    heroFalls: 0, heroDeaths: 0, heroDownAtEnd: 0,
+    woundsByHero: {} as Record<string,number>,
+    skillEvents: {} as Record<string,number>,
+    skillInterrupts: {} as Record<string,number>,
+    skillHits: {} as Record<string,{attempts:number;hits:number;pain:number}>,
+  };
   for (let i = 0; i < job.n; i++) {
     await fight(snap, job.seed != null ? job.seed + i : undefined);
     out.n++;
     out.over[S.over || 'draw']++;
     out.rounds.push(S.round);
-    for (const u of S.units) if (u.side === 'pc' && u.down) out.downs[u.tpl] = (out.downs[u.tpl] || 0) + 1;
+    for (const u of S.units) if (u.side === 'pc') {
+      if (u.down) {
+        out.downs[u.tpl] = (out.downs[u.tpl] || 0) + 1;
+        out.heroDownAtEnd++;
+      }
+      if (u.dead) out.heroDeaths++;
+    }
+    out.heroFalls += S.stat.ko || 0;
     out.hw.push(S.stat.heroWounds || 0);
-    for (const k of ['edge', 'ko', 'dead', 'revive', 'band']) out.ps[k] = (out.ps[k] || 0) + (S.stat[k] || 0);
+    for (const k of ['edge','ko','dead','revive','band']) out.ps[k] = (out.ps[k] || 0) + (S.stat[k] || 0);
+    for (const [k,v] of Object.entries(S.stat.skillEvents || {})) out.skillEvents[k] = (out.skillEvents[k] || 0) + (v as number);
+    for (const [k,v] of Object.entries(S.stat.skillInterrupts || {})) out.skillInterrupts[k] = (out.skillInterrupts[k] || 0) + (v as number);
+    for (const [k,v] of Object.entries(S.stat.skillHits || {})) {
+      const a = out.skillHits[k] || (out.skillHits[k]={attempts:0,hits:0,pain:0});
+      a.attempts += (v as any).attempts;
+      a.hits += (v as any).hits;
+      a.pain += (v as any).pain;
+    }
   }
   return out;
 }
