@@ -104,7 +104,8 @@ export async function reactWants(e, u: Unit, what) {
 /* Соседний союзник атакован (не по площади и не реакцией) — можно принять удар на себя, если атакующий достаёт и тебя.
    Стоит 1 очко реакции, защита от этого удара — отдельно. Конрад (Перехват) прикрывает бесплатно, но нужно хотя бы 1 очко на защиту. */
 export function coverCost(o) {
-  return tplOf(o).guardian ? 0 : 1;
+  const t = tplOf(o);
+  return t.guardian || (t.guardianLite && o.guardUsedRound !== S.round) ? 0 : 1;
 }
 export function canCoverFor(o, def: Unit, att: Unit, act: Action) {
   if (o.down || o === def || o === att || o.side !== def.side || o.prone || o.stunned || sz(o) > 1) return false;
@@ -150,6 +151,7 @@ export async function tryCover(def: Unit, att: Unit, act: Action, opt) {
     if (!(await coverWants(o, def, att, act))) continue;
     const c = coverCost(o);
     if (c) o.od--;
+    else if (tplOf(o).guardianLite) o.guardUsedRound = S.round;
     ev(
       `🛡 Прикрыть: ${uName(o)} принимает удар вместо союзника (${uName(def)})${c ? ` — 1 очко реакции, осталось ${o.od}` : ' — Перехват, бесплатно'}`,
     );
