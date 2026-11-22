@@ -359,3 +359,15 @@ for (const id in A) {
 }
 
 A.improv.unarmed = true;
+
+/* Экспериментальные карточки солдат первого этажа: не основной свод правил. */
+Object.assign(A, {
+  infantrySword: { name: 'Солдатский меч', kind: 'attack', cost: 1, pcls: 'med', ptyp: 'cut', atk: 'main', dmg: 'main', reach: 1, w: 'soldierSword' },
+  bucklerTap: { name: 'Подбив баклером', kind: 'attack', cost: 1, pcls: 'light', ptyp: 'blunt', atk: 'main', reach: 1, noPain: true, requiresShield: true, metrics: 'bucklerTap', hint: 'Без урона; −3 к следующему блоку или парированию до начала хода цели' },
+  infantrySpear: { name: 'Двуручное копьё', kind: 'attack', cost: 1, pcls: 'med', ptyp: 'pierce', atk: 'main', dmg: 'main', reach: 2, wt: 4, w: 'soldierSpear' },
+  spearReady: { name: 'Подготовить подавление', kind: 'charge', cost: 1, chargeType: 'suppress', metrics: 'spearReady', hint: 'Стойка на один ход: движение или толчок прерывают подготовку' },
+  spearSuppress: { name: 'Подавление', kind: 'attack', cost: 1, pcls: 'med', ptyp: 'pierce', atk: 'main', dmg: 'main', reach: 2, wt: 4, w: 'soldierSpear', penalty: -5, repeats: 3, requiresCharge: 'suppress', metrics: 'spearSuppress', hint: 'На следующем ходу 3 удара по одной выбранной цели; каждый −5' },
+  soldierCrossbow: { name: 'Солдатский арбалет', kind: 'attack', cost: 1, pcls: 'med', ptyp: 'pierce', atk: 'main', dmg: 'main', range: 10, ranged: true, noAdj: true, pierce: 1, needLoad: true, fx: 'bolt', w: 'soldierBow' },
+  aimReady: { name: 'Прицелиться', kind: 'charge', cost: 1, chargeType: 'aim', metrics: 'aimReady', hint: 'Следующий ход: +5 к выстрелу, союзники не закрывают цель; движение/толчок сбивает' },
+  aimedCrossbow: { name: 'Прицельный огонь', kind: 'attack', cost: 1, pcls: 'med', ptyp: 'pierce', atk: 'main', dmg: 'main', range: 10, ranged: true, noAdj: true, pierce: 1, needLoad: true, fx: 'bolt', w: 'soldierBow', penalty: 5, ignoreFriendlyLos: true, requiresCharge: 'aim', metrics: 'aimedCrossbow', hint: 'Выстрел на следующем ходу: +5; союзники не перекрывают линию, стены перекрывают' },
+});
