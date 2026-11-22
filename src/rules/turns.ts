@@ -72,6 +72,7 @@ export async function beginPhase() {
       if (u.down) continue;
     }
     u.prep = null;
+    if (u.charge && u.charge.readyRound < S.round) u.charge = null;
     u._ai = {};
     u._once = {};
     u.adUsed = 0;
@@ -144,6 +145,7 @@ export async function endPhase() {
     marker = S.round + ':' + S.phaseIdx;
   for (const u of S.units) {
     if (u.side !== side) continue;
+    if (u.charge && u.charge.readyRound <= S.round) u.charge = null;
     const keep = [];
     for (const e of u.effects) {
       if (e.left != null && e.at !== marker) {
