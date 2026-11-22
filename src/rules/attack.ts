@@ -16,6 +16,11 @@ import { S, friends, hostiles } from '../state';
 import { HXD, d20, esc, hpx, pick, sgn, sum, sz } from '../util';
 import { view } from '../view';
 export async function resolveAttack(att: Unit, act: Action, target: Unit, opt: Opts = {}) {
+  if (act.metrics && S.stat) {
+    const m = S.stat.skillHits || (S.stat.skillHits = {});
+    const x = m[act.metrics] || (m[act.metrics] = { attempts: 0, hits: 0, pain: 0 });
+    x.attempts++;
+  }
   let def = target;
   if (!opt.area && !opt.noCover) {
   }
@@ -170,7 +175,6 @@ export async function resolveAttack(att: Unit, act: Action, target: Unit, opt: O
   if (act.metrics && S.stat) {
     const m = S.stat.skillHits || (S.stat.skillHits = {});
     const x = m[act.metrics] || (m[act.metrics] = { attempts: 0, hits: 0, pain: 0 });
-    x.attempts++;
     if (hit) x.hits++;
     x.pain += dmg;
   }
