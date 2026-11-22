@@ -711,3 +711,43 @@ Object.assign(AI, {
     return false;
   },
 });
+
+/* Солдаты первого этажа. Приёмы используются настоящим ИИ, не только доступны в меню. */
+Object.assign(AI, {
+  async pInfantry(u: Unit, foes: Unit[]) {
+    const nearby = foes.filter(f => near1(u, f));
+    if (nearby.length) {
+      const alliesAble = friends(u).some(a => a.ai === 'pSpearman' && !a.down && (a.od || 0) > 0 && cheb(a, u) <= 3);
+      const t = enemyPick(u, nearby);
+      if (alliesAble && okAct(u, 'bucklerTap') && !t.effects.some(e => e.type === 'bucklerOpen') && canTarget(u, A.bucklerTap, t))
+        return await perform(u, 'bucklerTap', t);
+      if (okAct(u, 'infantrySword') && canTarget(u, A.infantrySword, t))
+        return await perform(u, 'infantrySword', t);
+    }
+    return AI.pStd(u, foes);
+  },
+  async pSpearman(u: Unit, foes: Unit[]) {
+    if (u.charge) {
+      if (u.charge.kind === 'suppress' && u.charge.readyRound === S.round && okAct(u, 'spearSuppress')) {
+        const ts = targetsFor(u, 'spearSuppress');
+        if (ts.length) return await perform(u, 'spearSuppress', enemyPick(u, ts));
+      }
+      if (u.charge.readyRound > S.round) return false;
+    }
+    const near = foes.some(t => near1(u, t));
+    if (!near && okAct(u, 'spearReady') && foes.some(t => cheb(u, t) <= 6)) return await perform(u, 'spearReady');
+    return AI.pStd(u, foes);
+  },
+  async pCrossbow(u: Unit, foes: Unit[]) {
+    if (u.charge) {
+      if (u.charge.kind === 'aim' && u.charge.readyRound === S.round && okAct(u, 'aimedCrossbow')) {
+        const ts = targetsFor(u, 'aimedCrossbow');
+        if (ts.length) return await perform(u, 'aimedCrossbow', enemyPick(u, ts));
+      }
+      if (u.charge.readyRound > S.round) return false;
+    }
+    if (u.loaded && okAct(u, 'aimReady') && foes.some(t => cheb(u, t) >= 2 && cheb(u, t) <= 10 && los(u, t, u, {noUnits:true}).ok))
+      return await perform(u, 'aimReady');
+    return AI.pShoot(u, foes);
+  }
+});
