@@ -394,14 +394,7 @@ const A={
   throwHeld:{name:'Бросить факел из рук',cost:1,kind:'throw',held:true,range:4},
   bandage:{name:'Перевязка',cost:1,kind:'bandage',pts:3},
   relight:{name:'Зажечь факел',cost:1,kind:'torch',on:true,hint:'Соседний погасший факел; нужен свой огонь'},
-  chain:{name:'Цепь',cost:1,kind:'attack',atk:'main',dmg:'main',K:2,reach:1},
-  chainSweep:{name:'Размах цепью',cost:1,kind:'arc',atk:'main',dmg:'main',K:2,penalty:-5,hexPenalty:-7,hint:'Дуга из 3 клеток, −5, отдельный бросок по каждой цели'},
-  chainCircle:{name:'Круговой удар',cost:2,kind:'circle',atk:'main',dmg:'main',K:2,hint:'Все 8 соседних клеток, задевает и своих'},
-  knife:{name:'Нож',cost:1,kind:'attack',atk:'main',dmg:'main',K:2,reach:1},
-  knifeExtra:{name:'Отчаянный удар',cost:0,kind:'attack',atk:'main',dmg:'main',K:2,reach:1,extra:true,hpBelow:5},
   club:{name:'Дубина',pcls:'heavy',ptyp:'blunt',cost:1,kind:'attack',atk:'main',dmg:'main',K:2,reach:1},
-  jailerGrab:{name:'Захват',cost:2,kind:'grab',grab:'jailer',atk:'str',reach:1,gdmg:2,offhand:true},
-  oldsword:{name:'Меч',cost:1,kind:'attack',atk:'main',dmg:'main',K:2,reach:1,hint:'В правилах оружие не указано: взят одноручный K=2'},
   spear:{name:'Копьё',cost:1,kind:'attack',atk:'main',dmg:'main',K:2.5,reach:2},
   xbow:{name:'Выстрел из арбалета',cost:1,kind:'attack',atk:'main',dmg:'main',K:3,range:12,ranged:true,noAdj:true,pierce:2,req:{str:3},needLoad:true,fx:'bolt',hint:'Пробитие брони 2; после выстрела нужна перезарядка'},
   reload:{name:'Перезарядка',cost:1,kind:'self'},
@@ -526,10 +519,6 @@ const T={
   jester:{name:'Шут',glyph:'Ш',side:'pc',str:3,dex:7,int:5,cha:9,will:15,disorder:'odd',hp:20,armor:1,shield:0,speed:3,torches:2,bandages:2,baseDef:6,acts:['move','jdagger','trip','taunt','ditty','throwTorch','throwHeld','bandage','escape'],ai:'pcJester'},
   guard:{name:'Страж',glyph:'С',side:'en',size:2,str:11,dex:5,int:1,cha:1,will:0,hp:46,armor:4,speed:2,adr:2,baseDef:6,acts:['move','axe','guardSweep','limbGrab','smash','escape'],ai:'guard'},
   owl:{name:'Филин',glyph:'Ф',side:'en',nightVision:true,resist:true,str:8,dex:14,int:10,cha:1,will:null,hp:26,armor:2,speed:6,adr:2,baseDef:6,acts:['move','blades','shriek','douse','darkjump','escape'],ai:'owl'},
-  chain:{name:'Узник с цепью',glyph:'Ц',side:'en',str:10,dex:4,int:3,cha:1,will:-10,hp:14,armor:1,speed:2,torches:2,baseDef:6,acts:['move','chain','chainSweep','chainCircle','throwTorch','throwHeld','escape'],ai:'dumb',disorder:'aggr'},
-  knife:{name:'Узник с ножом',glyph:'Н',side:'en',str:5,dex:8,int:3,cha:1,will:-10,hp:9,armor:0,speed:4,torches:2,baseDef:6,acts:['move','knife','knifeExtra','throwTorch','throwHeld','escape'],ai:'dumb',disorder:'fear'},
-  jailer:{name:'Тюремщик',glyph:'Т',side:'en',str:9,dex:4,int:4,cha:3,will:0,hp:12,armor:2,speed:2,torches:2,baseDef:6,acts:['move','club','jailerGrab','throwTorch','throwHeld','escape'],ai:'jailer'},
-  oldsold:{name:'Старый солдат',glyph:'Сл',side:'en',str:7,dex:5,int:6,cha:4,will:3,hp:12,armor:2,speed:2,torches:2,baseDef:6,acts:['move','oldsword','throwTorch','throwHeld','escape'],ai:'smart'},
   spear:{name:'Копейщик',glyph:'К',side:'en',str:7,dex:5,int:3,cha:2,will:-5,hp:12,armor:1,speed:3,torches:2,baseDef:6,acts:['move','spear','throwTorch','throwHeld','escape'],ai:'smart'},
   xbow:{name:'Арбалетчик',glyph:'А',side:'en',str:8,dex:7,int:4,cha:2,will:-5,hp:10,armor:1,speed:3,torches:2,baseDef:6,acts:['move','xbow','reload','improv','throwTorch','throwHeld','escape'],ai:'shooter'},
   veteran:{name:'Ветеран',glyph:'Вт',side:'en',str:8,dex:4,int:6,cha:4,will:8,hp:11,armor:2,shield:2,speed:2,torches:2,baseDef:6,acts:['move','wswap','longspear','breach','bastard','counter','vetShield','throwTorch','throwHeld','escape'],ai:'veteran'},
@@ -537,7 +526,7 @@ const T={
   peasant:{name:'Крестьянин',glyph:'Кр',side:'en',str:4,dex:3,int:3,cha:2,will:-5,hp:11,armor:0,speed:3,torches:2,baseDef:6,acts:['move','improv','throwTorch','throwHeld','escape'],ai:'dumb'},
   noble:{name:'Дворянин',glyph:'Д',side:'en',str:2,dex:3,int:5,cha:7,will:2,hp:9,armor:0,speed:3,torches:2,baseDef:6,acts:['move','improv','throwTorch','throwHeld','escape'],ai:'dumb'},
 };
-const CHAR_TPL={K:'knight',W:'witch',I:'inquisitor',B:'baron',G:'guard',O:'owl',C:'chain',N:'knife',J:'jailer',S:'oldsold',P:'spear',X:'xbow',V:'veteran','1':'servant','2':'peasant','3':'noble'};
+const CHAR_TPL={K:'knight',W:'witch',I:'inquisitor',B:'baron',G:'guard',O:'owl',P:'spear',X:'xbow',V:'veteran','1':'servant','2':'peasant','3':'noble'};
 
 /* ================= СЦЕНАРИИ ================= */
 const SCN={
@@ -554,7 +543,7 @@ const SCN={
     '#..............T',
     '#......#.......#',
     '################']},
-  guardplus:{name:'Страж и случайный мелкий противник',goal:'Страж и один мелкий противник, каждый запуск — случайный: арбалетчик, копейщик, старый солдат или узник.',pool:['X','P','S','C','N'],map:[
+  guardplus:{name:'Страж и случайный мелкий противник',goal:'Страж и один случайный противник: арбалетчик или копейщик.',pool:['X','P'],map:[
     '####T#####T#####',
     '#......#.......#',
     '#.K....#.......#',
@@ -567,12 +556,12 @@ const SCN={
     '#..............T',
     '#......#.......#',
     '################']},
-  small:{name:'Мелкие противники',goal:'Арбалетчик, копейщик, старый солдат и два узника против пятерых. У обеих сторон факелы: в темноте −5 и цель только вплотную.',map:[
+  small:{name:'Мелкие противники',goal:'Арбалетчик и копейщик против пятерых. Старые противники удалены.',map:[
     '#######T########',
     '#..............#',
-    '#..X.......N...#',
-    '#....P...C.....#',
-    '#..##...S..##..#',
+    '#..X...........#',
+    '#....P.........#',
+    '#..##......##..#',
     'T..##......##..T',
     '#..............#',
     '#..............#',
@@ -580,12 +569,12 @@ const SCN={
     '#......W..K....#',
     '#..............#',
     '################']},
-  medium:{name:'Ветераны и тюремщики',goal:'Пять средних противников: ветераны с длинным копьём, щитом и Контрударом, тюремщики с дубиной и захватом.',map:[
+  medium:{name:'Ветераны',goal:'Два ветерана с длинным копьём, щитом и Контрударом.',map:[
     '#######T########',
     '#..............#',
-    '#..V.......J...#',
-    '#....J...V.....#',
-    '#..##...J..##..#',
+    '#..V...........#',
+    '#........V.....#',
+    '#..##......##..#',
     'T..##......##..T',
     '#..............#',
     '#..............#',
@@ -606,19 +595,6 @@ const SCN={
     '#......K.......#',
     '#....K.I.B.W...#',
     '################']},
-  prison:{name:'Тюремный блок',goal:'Захват тюремщика, расстройства узников (Агрессия у цепного, Страх у узника с ножом), круговой удар цепью.',map:[
-    '################',
-    '#...#...#...#..#',
-    '#.C.#.N.#...#..#',
-    '#...#...#...#..#',
-    '##d###d###d###d#',
-    'T..............T',
-    '#..K.B.........#',
-    '#.W.I.K...J....#',
-    '##D###D###D###D#',
-    '#...#...#...#..#',
-    '#...#...#...#..#',
-    '################']},
   garrison:{name:'Гарнизон',goal:'Копья на 2 клетки, арбалет с пробитием и перезарядкой, Контрудар и щит Ветерана.',map:[
     '#######T########',
     '#..............#',
@@ -627,7 +603,7 @@ const SCN={
     '#....P..V......#',
     'T..............T',
     '#.....##.......#',
-    '#.....##...S...#',
+    '#.....##.......#',
     '#..............#',
     '#.......K......#',
     '#....IK..WB....#',
