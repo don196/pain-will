@@ -135,7 +135,7 @@ export function hexLosCells(p, q, a, b, att: Unit, opt) {
       }
       if (!opt.noUnits) {
         const o = unitAt(c.x, c.y);
-        if (o && o !== att) {
+        if (o && o !== att && !(opt.ignoreFriendly && o.side === att.side)) {
           bad = {
             ok: false,
             why: o.name,
