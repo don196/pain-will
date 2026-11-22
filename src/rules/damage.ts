@@ -33,6 +33,7 @@ export function downUnit(u: Unit, src?) {
   u.down = true;
   u.od = 0;
   u.prep = null;
+  u.charge = null;
   u.prone = false;
   u.st = {};
   if (u.lassoT) releaseLasso(u, 'выбыл');

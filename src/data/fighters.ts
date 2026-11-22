@@ -240,3 +240,24 @@ Object.assign(CHAR_TPL, {
   c: 'dummyBow',
   f: 'dummyFat',
 });
+
+/* Пробные бойцы полигона: числовые характеристики пока не утверждены в документах. */
+Object.assign(T, {
+  infantry: {
+    name: 'Пехотинец', glyph: 'П', side: 'en', str: 5, dex: 5, int: 4, cha: 4, con: 5,
+    mm: 4, mr: 2, will: null, lim: 6, armor: 2, shield: 2, speed: 3,
+    fullDef: true, coverAlly: true, guardianLite: true, bucklerCtl: true,
+    acts: ['move', 'infantrySword', 'bucklerTap', 'push', 'standup', 'escape'], ai: 'pInfantry',
+  },
+  spearman: {
+    name: 'Копейщик', glyph: 'Кп', side: 'en', str: 6, dex: 5, int: 4, cha: 4, con: 4,
+    mm: 4, mr: 1, will: null, lim: 5, armor: 1, shield: 0, speed: 3,
+    acts: ['move', 'infantrySpear', 'spearReady', 'spearSuppress', 'standup', 'escape'], ai: 'pSpearman',
+  },
+  crossbowman: {
+    name: 'Арбалетчик', glyph: 'Ар', side: 'en', str: 4, dex: 6, int: 4, cha: 4, con: 4,
+    mm: 2, mr: 4, will: null, lim: 4, armor: 1, shield: 0, speed: 3,
+    acts: ['move', 'soldierCrossbow', 'aimReady', 'aimedCrossbow', 'reload', 'improv', 'standup', 'escape'], ai: 'pCrossbow',
+  },
+});
+Object.assign(CHAR_TPL, { p: 'infantry', q: 'spearman', r: 'crossbowman' });

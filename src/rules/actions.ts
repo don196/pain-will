@@ -10,6 +10,7 @@ import {
   doPush,
   legPara,
   marker,
+  interrupt,
   partSt,
   shieldControl,
   v2PrepCheck,
@@ -104,6 +105,9 @@ export function okAct(u: Unit, id, raw?) {
   if (a.kind === 'unlasso' && !lassoTarget(u)) return false;
   if (a.lasso && lassoTarget(u)) return false;
   if (a.kind === 'prep' && u.prep) return false;
+  if (a.kind === 'charge' && u.charge) return false;
+  if (a.requiresCharge && (!u.charge || u.charge.kind !== a.requiresCharge || S.round !== u.charge.readyRound)) return false;
+  if (a.requiresShield && !u.shield) return false;
   if (['move'].includes(a.kind) && hasEff(u, 'lasso')) return false;
   if (ATTACK_KINDS.includes(a.kind) && !a.magic && !a.lasso && (partSt(u, 'armR') >= 3 || lassoPart(u) === 'armR'))
     return false;
@@ -176,7 +180,7 @@ export function canTarget0(u: Unit, act: Action, t, from, friendly?) {
     if (act.fireSrc && hasEff(u, 'magsight') && !(d <= act.range && los(from, t, u).ok))
       return fireSources().some(s => hd(s.x, s.y, t.x, t.y) <= 3 && fireLine(s, t) && fireLine(s, from));
     if (d > act.range) return false;
-    return los(from, t, u).ok;
+    return los(from, t, u, {ignoreFriendly: !!act.ignoreFriendlyLos}).ok;
   }
   const reach = act.reach || 1;
   if (d > reach) return false;
@@ -275,6 +279,8 @@ export function hasTargets(u: Unit, id) {
       ].some(v => v.d > 0);
     case 'attack':
       return targetsFor(u, id).length > 0;
+    case 'charge':
+      return !u.charge;
     case 'push':
     case 'curse2':
     case 'habits':
@@ -345,6 +351,11 @@ export async function perform(u: Unit, id, tgt?) {
     u.cd = u.cd || {};
     u.cd[id] = S.round + a.cd;
   }
+  if (a.metrics && S.stat) {
+    const m = S.stat.skillEvents || (S.stat.skillEvents = {});
+    m[a.metrics] = (m[a.metrics] || 0) + 1;
+  }
+  if (a.requiresCharge) u.charge = null;
   if (a.ammo) {
     u.ammo = u.ammo || {};
     u.ammo[id] = Math.max(0, (u.ammo[id] || 0) - 1);
@@ -386,6 +397,10 @@ export async function perform(u: Unit, id, tgt?) {
     }
   }
   switch (a.kind) {
+    case 'charge':
+      u.charge = { kind: a.chargeType, readyRound: S.round + 1 };
+      ev(`⏳ ${uName(u)}: ${esc(a.name)} — подготовка до следующего хода, без перемещения`);
+      break;
     case 'push':
       await doPush(u, tgt);
       break;
@@ -422,7 +437,7 @@ export async function perform(u: Unit, id, tgt?) {
       break;
     case 'attack': {
       if (a.needLoad) u.loaded = false;
-      let reps = 1;
+      let reps = a.repeats || 1;
       if (a.lasso) await chooseSnarePart(u, a, tgt);
       for (let i = 0; i < reps; i++) {
         if (tgt.down || u.down || S.over) break;
@@ -553,6 +568,7 @@ export async function performMove(u: Unit, x, y) {
   if (!v || v.d === 0) return false;
   const cost = v.d <= sp ? 1 : 2;
   if (cost > u.od) return false;
+  interrupt(u, 'добровольное перемещение');
   u.od -= cost;
   u._acted = true;
   log(`${esc(u.name)}: перемещение на ${v.d} кл. (${cost} ОД)`, 'mv');
