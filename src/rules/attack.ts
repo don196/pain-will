@@ -146,7 +146,10 @@ export async function resolveAttack(att: Unit, act: Action, target: Unit, opt: O
     pinfo = null;
   if (hit) {
     let calc;
-    if (act.fixed != null) {
+    if (act.noPain) {
+      dmg = 0;
+      calc = 'нет (приём контроля)';
+    } else if (act.fixed != null) {
       const m = kb && kb.collide ? 2 : 1;
       dmg = act.fixed * m;
       calc =
@@ -163,6 +166,13 @@ export async function resolveAttack(att: Unit, act: Action, target: Unit, opt: O
       calc = painTxt(pinfo, deg.t);
     }
     html += `<div class="ld">${pinfo ? '' : 'Боль: '}${calc} · ${painAfterTxt(def, dmg)}</div>`;
+  }
+  if (act.metrics && S.stat) {
+    const m = S.stat.skillHits || (S.stat.skillHits = {});
+    const x = m[act.metrics] || (m[act.metrics] = { attempts: 0, hits: 0, pain: 0 });
+    x.attempts++;
+    if (hit) x.hits++;
+    x.pain += dmg;
   }
   log(html, 'atk');
   view.fxLine(att, def, act.fx || (act.ranged ? 'bolt' : 'melee'));
@@ -184,6 +194,11 @@ export async function resolveAttack(att: Unit, act: Action, target: Unit, opt: O
     att._striking = true;
     applyDamage(def, dmg, att);
     att._striking = false;
+    if (act.metrics === 'bucklerTap' && !def.down) {
+      def.effects = def.effects.filter(e => e.type !== 'bucklerOpen');
+      def.effects.push({type:'bucklerOpen', until:def.id, end:1e9});
+      ev(`🛡 ${uName(def)}: −3 к следующему блоку или парированию до начала собственного хода`);
+    }
     if (!def.down) {
       await v2OnHit(att, act, def, deg, dmg, v2x, hb, opt);
       if (act.critWound && deg.t === 3 && hb !== 'wound' && !def.down) {
