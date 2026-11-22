@@ -180,7 +180,7 @@ export function canTarget0(u: Unit, act: Action, t, from, friendly?) {
     if (act.fireSrc && hasEff(u, 'magsight') && !(d <= act.range && los(from, t, u).ok))
       return fireSources().some(s => hd(s.x, s.y, t.x, t.y) <= 3 && fireLine(s, t) && fireLine(s, from));
     if (d > act.range) return false;
-    return los(from, t, u).ok;
+    return los(from, t, u, {ignoreFriendly: !!act.ignoreFriendlyLos}).ok;
   }
   const reach = act.reach || 1;
   if (d > reach) return false;
