@@ -1,6 +1,8 @@
 import type { Opts, Unit } from '../types';
 import { LASSO_R, lassoTarget } from './lasso';
 import { hiddenFrom } from './light';
+import { hAt, hNearOk, hasHeights, heightClear, stepCost } from './height';
+import { speedOf } from './stats';
 import { S, hostiles } from '../state';
 import { cheb, hd, hexLine, key, nbrDirs, sz, unkey } from '../util';
 export const inB = (x, y) => x >= 0 && y >= 0 && x < S.w && y < S.h;
@@ -69,11 +71,14 @@ export const posOf = (u: Unit, x, y) => ({
 });
 export const torchAt = (x, y) => S.torches.find(t => t.x === x && t.y === y) || null;
 export function footFree(u: Unit, x, y) {
-  for (const c of footCells(x, y, sz(u))) {
+  const cs = footCells(x, y, sz(u));
+  for (const c of cs) {
     if (isWall(c.x, c.y)) return false;
     const o = unitAt(c.x, c.y);
     if (o && o !== u) return false;
   }
+  /* крупный боец встаёт только на ровное место */
+  if (cs.length > 1 && hasHeights() && cs.some(c => hAt(c.x, c.y) !== hAt(x, y))) return false;
   return true;
 }
 export function footWalls(u: Unit, x, y) {
@@ -83,6 +88,7 @@ export function footWalls(u: Unit, x, y) {
 
 /* Диагональ: между двумя стенами и между стеной и персонажем — нельзя; между двумя персонажами — можно. */
 export function bfs(u: Unit, opt: Opts = {}) {
+  if (hasHeights()) return bfsH(u, opt);
   const dist = new Map();
   dist.set(key(u.x, u.y), {
     d: 0,
@@ -110,6 +116,48 @@ export function bfs(u: Unit, opt: Opts = {}) {
   }
   return dist;
 }
+/* Поиск пути с высотами: подъём без лестницы дороже, уступ в 2 уровня непроходим. d — клетки перемещения. */
+function bfsH(u: Unit, opt: Opts = {}) {
+  const dist = new Map();
+  dist.set(key(u.x, u.y), {
+    d: 0,
+    p: null,
+  });
+  const open = [[u.x, u.y]],
+    done = new Set();
+  const leash = u.lassoT ? lassoTarget(u) : null;
+  const climb = speedOf(u);
+  while (open.length) {
+    let bi = 0;
+    for (let i = 1; i < open.length; i++)
+      if (dist.get(key(open[i][0], open[i][1])).d < dist.get(key(open[bi][0], open[bi][1])).d) bi = i;
+    const [x, y] = open.splice(bi, 1)[0];
+    const k0 = key(x, y);
+    if (done.has(k0)) continue;
+    done.add(k0);
+    const cur = dist.get(k0);
+    if (opt.max != null && cur.d >= opt.max) continue;
+    for (const [dx, dy] of nbrDirs(x, y)) {
+      const nx = x + dx,
+        ny = y + dy,
+        k = key(nx, ny);
+      if (done.has(k) || !footFree(u, nx, ny)) continue;
+      if (leash && hd(nx, ny, leash.x, leash.y) > LASSO_R) continue;
+      const c = stepCost(x, y, nx, ny, climb);
+      if (!isFinite(c)) continue;
+      const nd = cur.d + c;
+      if (opt.max != null && nd > opt.max) continue;
+      const old = dist.get(k);
+      if (old && old.d <= nd) continue;
+      dist.set(k, {
+        d: nd,
+        p: k0,
+      });
+      open.push([nx, ny]);
+    }
+  }
+  return dist;
+}
 export function pathTo(dist, x, y) {
   const out = [];
   let k = key(x, y);
@@ -122,9 +170,16 @@ export function pathTo(dist, x, y) {
 export function hexLosCells(p, q, a, b, att: Unit, opt) {
   const block = opt.light ? blocksLight : blocksShot;
   let last = null;
+  const hh = !opt.light && hasHeights();
   for (const e of [1e-6, -1e-6]) {
     let bad = null;
-    for (const c of hexLine(p, q, e)) {
+    const line = hexLine(p, q, e);
+    if (hh && !heightClear(p, q, line))
+      bad = {
+        ok: false,
+        why: 'уступ',
+      };
+    for (const c of bad ? [] : line) {
       if (inFoot(a, c.x, c.y) || inFoot(b, c.x, c.y)) continue;
       if (block(c.x, c.y)) {
         bad = {
@@ -168,6 +223,7 @@ export function los(a, b, att: Unit, opt: Opts = {}) {
 
 /* Досягаемость 2: стены по линии; персонаж блокирует только строго посередине (прямо или по диагонали через него). */
 export function reachClear(from, t, u: Unit) {
+  if (hasHeights() && !hNearOk(from, t)) return false;
   if (
     !los(from, t, u, {
       noUnits: true,
@@ -190,10 +246,10 @@ export function reachClear(from, t, u: Unit) {
 
 /* Соседство с учётом углов: хотя бы одна пара соседних клеток не разделена углом стены. */
 export function adjOk(a, b) {
+  const hh = hasHeights();
   for (const p of cellsOf(a))
     for (const q of cellsOf(b)) {
-      if (hd(p.x, p.y, q.x, q.y) === 1) return true;
-      continue;
+      if (hd(p.x, p.y, q.x, q.y) === 1 && (!hh || hNearOk(p, q))) return true;
     }
   return false;
 }

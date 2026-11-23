@@ -5,6 +5,7 @@ import { barsAt, bfs, doorAt, inFoot, los, pairOptions, pathTo, unitAt } from '.
 import { hiddenFrom, unitLight } from '../rules/light';
 import { validFlash } from '../rules/magic';
 import { koAt } from '../rules/pain';
+import { hAt, isStairs } from '../rules/height';
 import { adLeft, canActiveDefend, resist } from '../rules/reactions';
 import { activeMods, hitCalc, speedOf } from '../rules/stats';
 import { openWounds } from '../rules/wounds';
@@ -13,9 +14,14 @@ import { GEN, S, SIMULATING, selUnit } from '../state';
 import { renderHL } from './board';
 import { closeCtx, openCtx } from './ctxmenu';
 import { editorClick } from './editor';
-import { actState, render, zocPreview } from './panels';
+import { FC_KINDS, actState, effAct, render, zocPreview } from './panels';
 import { armorTxt, hpTxt } from './status';
 import { $, CANCEL, cheb, esc, fmtN, key, pct, sgn, sum } from '../util';
+/* Чем нажали последний раз: пальцем — удар по цели сначала показывает карточку прогноза. */
+export let lastPtr = 'mouse';
+export function notePointer(e) {
+  lastPtr = e.pointerType || 'mouse';
+}
 export const IMMEDIATE = ['self', 'circle', 'escape', 'aura', 'breakbind', 'unbind', 'standup', 'prep', 'unlasso'];
 export function onAction(id) {
   const u = selUnit();
@@ -28,6 +34,8 @@ export function onAction(id) {
     return;
   }
   S.act = S.act === id ? null : id;
+  S.pendT = null;
+  S.pathNote = null;
   hideTip();
   render();
 }
@@ -35,6 +43,8 @@ export async function run(fn) {
   closeCtx();
   S.busy = true;
   S.act = null;
+  S.pendT = null;
+  S.pathNote = null;
   hideTip();
   render();
   const g = GEN;
@@ -66,16 +76,24 @@ export function onCellClick(e) {
   }
   if (S.busy) return;
   const u = selUnit(),
-    t = unitAt(p.x, p.y) || koAt(p.x, p.y);
-  if (S.act && canControl(u)) {
-    const a = A[S.act],
-      id = S.act;
+    t = unitAt(p.x, p.y) || koAt(p.x, p.y),
+    cur = effAct(u);
+  if (cur && canControl(u)) {
+    const a = A[cur],
+      id = cur;
     if (a.kind === 'move') {
       const dist = bfs(u, {
         max: speedOf(u) * Math.min(2, u.od),
       });
       const v = dist.get(key(p.x, p.y));
       if (v && v.d > 0) {
+        /* пальцем: первое касание показывает путь и цену, второе — идёт */
+        if (lastPtr === 'touch' && (!S.hover || S.hover.x !== p.x || S.hover.y !== p.y)) {
+          S.hover = p;
+          S.pathNote = `путь ${v.d} кл. · ${v.d <= speedOf(u) ? 1 : 2} ОД — нажмите ещё раз, чтобы пойти`;
+          render();
+          return;
+        }
         run(() => performMove(u, p.x, p.y));
         return;
       }
@@ -108,12 +126,18 @@ export function onCellClick(e) {
         return;
       }
     } else if (t && canTarget(u, a, t)) {
+      if (lastPtr === 'touch' && FC_KINDS.includes(a.kind) && S.pendT !== t.id) {
+        S.pendT = t.id;
+        renderHL();
+        return;
+      }
       run(() => perform(u, id, t));
       return;
     }
   }
   if (S.act) {
     S.act = null;
+    S.pendT = null;
     closeCtx();
     render();
     return;
@@ -139,14 +163,19 @@ export function hideTip() {
 export function showTip(e, p) {
   const tip = $('#tip'),
     u = selUnit();
-  if (S.editor || S.busy || !u || !S.act || !canControl(u)) {
+  const cur = effAct(u);
+  if (S.editor || S.busy || !u || !cur || !canControl(u) || (!S.act && unitAt(p.x, p.y))) {
     const o = unitAt(p.x, p.y);
     if (o && !S.editor) {
-      tip.innerHTML = `<b>${esc(o.name)}</b> · ${hpTxt(o)}<div class="m">${`стойкость ${resist(o)}`} · броня ${armorTxt(o)} · ОД ${o.od}${o.side !== S.phase ? ' (запас реакций)' : ''} · акт. защита ${adLeft(o) > 0 ? 'есть' : 'нет'} · ${LIGHT_RU[unitLight(o)]}${o.nv ? ', ночное зрение' : ''}</div>`;
+      tip.innerHTML = `<b>${esc(o.name)}</b> · ${hpTxt(o)}${hAt(o.x, o.y) ? ' · высота ' + hAt(o.x, o.y) : ''}<div class="m">${`стойкость ${resist(o)}`} · броня ${armorTxt(o)} · ОД ${o.od}${o.side !== S.phase ? ' (запас реакций)' : ''} · акт. защита ${adLeft(o) > 0 ? 'есть' : 'нет'} · ${LIGHT_RU[unitLight(o)]}${o.nv ? ', ночное зрение' : ''}</div>`;
     } else {
       const d = doorAt(p.x, p.y),
-        b = barsAt(p.x, p.y);
-      if (!S.editor && (d || b)) {
+        b = barsAt(p.x, p.y),
+        hv = hAt(p.x, p.y),
+        st = isStairs(p.x, p.y);
+      if (hv || st) {
+        tip.innerHTML = `${hv ? 'Высота ' + hv : 'Пол'}${st ? ' · лестница: подъём без доплаты' : ''}`;
+      } else if (!S.editor && (d || b)) {
         tip.innerHTML = d
           ? `Дверь: ${d.open ? 'открыта' : 'закрыта'}${d.locked ? ', заперта' : ''}`
           : `Решётка: свет проходит, пройти нельзя, ${b.shoot ? 'бить сквозь неё можно' : 'бить сквозь неё нельзя'}`;
@@ -156,8 +185,12 @@ export function showTip(e, p) {
       }
     }
   } else {
-    const a = A[S.act];
+    const a = A[cur];
     let html = '';
+    if (FC_KINDS.includes(a.kind) && $('#fcard') && !$('#fcard').hidden) {
+      hideTip();
+      return;
+    }
     if (a.kind === 'move') {
       const sp = speedOf(u),
         dist = bfs(u, {
@@ -169,7 +202,8 @@ export function showTip(e, p) {
         return;
       }
       const zp = zocPreview(u, pathTo(dist, p.x, p.y));
-      html = `Путь ${v.d} гекс. · <b>${v.d <= sp ? 1 : 2} ОД</b>${''}${zp.map(z => `<div class="zw">Выход из зоны: ${esc(z.e.name)} ударит (${esc(A[z.id].name)}), попадёт в ${pct(z.p)}</div>`).join('')}`;
+      const hv = hAt(p.x, p.y);
+      html = `Путь ${v.d} гекс. · <b>${v.d <= sp ? 1 : 2} ОД</b>${hv ? ' · высота ' + hv : ''}${zp.map(z => `<div class="zw">Выход из зоны: ${esc(z.e.name)} ударит (${esc(A[z.id].name)}), попадёт в ${pct(z.p)}</div>`).join('')}`;
     } else if (a.kind === 'trap') {
       if (!validTrap(u, p)) {
         hideTip();

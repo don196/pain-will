@@ -1,44 +1,42 @@
 import type { Unit } from '../types';
-import { painPen } from '../rules/pain';
 import { aiTurn } from '../ai/ai';
 import { A, ATTACK_KINDS } from '../data/actions';
 import { DIS, DIS_ICON, disDesc } from '../data/disorders';
 import { T } from '../data/fighters';
 import { AREA_RU, EFF_RU, LIGHT_RU, PTYP_RU, STAT_RU, WDEG_RU, WNAME } from '../data/labels';
 import { SCN } from '../data/scenarios';
-import { actCost, canControl, canTarget, hasAct, hasTargets, isHuman, weaponsOf, zocWeapon } from '../rules/actions';
+import {
+  actCost,
+  canControl,
+  canTarget,
+  hasAct,
+  hasTargets,
+  isHuman,
+  perform,
+  weaponsOf,
+  zocWeapon,
+} from '../rules/actions';
 import { V2_EFF, mast, mastMg, partSt, stOf, v2DefOptions } from '../rules/combat';
 import { changeWill, disForm, disLock, disOf } from '../rules/disorders';
-import { near1, pairOptions, posOf } from '../rules/geometry';
+import { near1, pairOptions, posOf, unitAt } from '../rules/geometry';
+import { hAt, hasHeights } from '../rules/height';
 import { lassoPart, lassoTarget } from '../rules/lasso';
 import { darkPen, unitLight } from '../rules/light';
 import { ev, uName } from '../rules/log';
 import { curseCalc, weakMag } from '../rules/magic';
-import { PCLS, edgeOk, onEdge, wClass, wType } from '../rules/pain';
-import { RBASE, conOf, odMax, openT, resist } from '../rules/reactions';
-import { bdefOf, hasEff, hitCalc, pContest, reqOk, speedOf, stat } from '../rules/stats';
+import { PCLS, edgeOk, limOf, onEdge, painOf, painPen, wClass, wType } from '../rules/pain';
+import { RBASE, canActiveDefend, conOf, odMax, openT, resist } from '../rules/reactions';
+import { atkMods, bdefOf, hasEff, hitCalc, pContest, reqOk, speedOf, stat } from '../rules/stats';
 import { onEndTurn } from '../rules/turns';
 import { AREAS, woundPenTxt } from '../rules/wounds';
 import { SET } from '../settings';
 import { S, alive, byId, friends, selUnit } from '../state';
-import { CELL, drawLight, renderHL, renderTokens, tokPos } from './board';
+import { CELL, boardW, drawLight, renderHL, renderTokens, tokPos } from './board';
 import { renderEditor } from './editor';
 import { restart } from './game';
 import { hintOf } from './hints';
 import { onAction, run } from './input';
-import {
-  armorTxt,
-  downTxt,
-  fxChips,
-  hpCol,
-  hpFrac,
-  hpNum,
-  hpVal,
-  odPipsHTML,
-  openLegend,
-  roman,
-  v2CardLines,
-} from './status';
+import { armorTxt, downTxt, odPipsHTML, openLegend, painSegs, v2CardLines } from './status';
 import { $, esc, fmtN, pct, sgn, sum, sz } from '../util';
 export function actState(u: Unit, id) {
   const a = A[id];
@@ -243,6 +241,16 @@ export function zocPreview(u: Unit, path) {
 }
 
 /* Прогноз прямо на поле: шанс и ожидаемый урон над каждой доступной целью. */
+/* Действие по умолчанию: у своего героя с ОД без выбранного действия — перемещение, область видна сразу. */
+export function defaultMove(u: Unit) {
+  return !!u && canControl(u) && u.acts.includes('move') && actState(u, 'move').ok;
+}
+export function effAct(u: Unit) {
+  if (!u || !canControl(u)) return null;
+  return S.act || (defaultMove(u) ? 'move' : null);
+}
+
+/* Прогноз прямо на поле: шанс и ожидаемый урон над каждой доступной целью. */
 export function renderForecast() {
   const box = $('#fc');
   if (!box) return;
@@ -288,6 +296,113 @@ export function renderForecast() {
     }
   }
   box.innerHTML = html;
+  renderFcard();
+}
+
+/* Карточка прогноза у цели: степени успеха, сколько Боли пройдёт и что станет с целью.
+   Мышью — при наведении, щелчок бьёт. Пальцем — первое касание открывает карточку, удар — кнопкой. */
+export const FC_KINDS = ['attack', 'pair'];
+export const PHONE = () => typeof window !== 'undefined' && window.matchMedia('(max-width:700px)').matches;
+export function fcardTarget() {
+  const u = selUnit();
+  if (!u || !S.act || !canControl(u)) return null;
+  const a = A[S.act];
+  if (!FC_KINDS.includes(a.kind)) return null;
+  const pend = S.pendT != null ? byId(S.pendT) : null;
+  if (pend && !pend.down && canTarget(u, a, pend)) return pend;
+  if (!UI.fc || !S.hover) return null;
+  const t = unitAt(S.hover.x, S.hover.y);
+  if (!t || t.side === u.side) return null;
+  if (a.kind === 'pair') return pairOptions(u).some(p => p.includes(t)) ? t : null;
+  return canTarget(u, a, t) ? t : null;
+}
+export function renderFcard() {
+  const box = $('#fcard');
+  if (!box) return;
+  const t = fcardTarget(),
+    u = selUnit();
+  if (!t || !u) {
+    box.hidden = true;
+    box.dataset.t = '';
+    return;
+  }
+  const a = A[S.act],
+    h = hitCalc(u, a, t),
+    cost = actCost(u, S.act),
+    L = limOf(t),
+    p0 = painOf(t),
+    touch = S.pendT === t.id;
+  const DN = ['Мимо', 'Обычный', 'Усиленный', 'Крит'],
+    DC = ['miss', 'ok', 'enh', 'crit'];
+  let rows = '';
+  for (let k = 0; k <= 3; k++) {
+    if (!k && h.p[0] <= 0) continue;
+    const d = k ? h.dm[k] : 0,
+      res =
+        k === 0
+          ? 'без Боли'
+          : a.noPain || a.fixed === 0
+            ? 'без Боли'
+            : d <= 0
+              ? '0 — броня гасит'
+              : `+${d} Боли${p0 + d >= L ? (t.side === 'pc' ? ', на пороге' : ', выбывает') : ''}`;
+    rows += `<div class="fr ${DC[k]}"><span class="fl">${DN[k]}</span><span class="fb"><i style="width:${Math.round(h.p[k] * 100)}%"></i></span><span class="fp">${pct(h.p[k])}</span><span class="fd">${res}</span></div>`;
+  }
+  const maxD = Math.max(0, ...h.dm.slice(1));
+  let segs = '';
+  for (let i = 0; i < L; i++) segs += `<i class="${i < p0 ? 'on' : i < p0 + maxD ? 'gh' : ''}"></i>`;
+  const mods = atkMods(u, a, t);
+  const ad = canActiveDefend(t) ? `<div class="fn">У цели есть активная защита: может отбить этот же бросок</div>` : '';
+  box.innerHTML = `<div class="fh"><b>${esc(a.name)} → ${esc(t.name)}</b><span class="cost">${cost} ОД</span></div>
+    <div class="fm">d20 ${sgn(h.M)} против Стойкости ${h.D}<span class="dim">${mods.map(m => ' · ' + esc(m.l) + ' ' + sgn(m.v)).join('')}</span></div>
+    <div class="frs">${rows}</div>
+    <div class="ft"><span>Боль цели</span><span class="segs fcs">${segs}</span><span class="mono">${p0}/${L}</span></div>${ad}
+    ${touch ? `<div class="fbtn"><button type="button" class="primary" id="fcGo">${esc(a.name)} · ${cost} ОД</button><button type="button" id="fcNo">Отмена</button></div>` : '<div class="fn dim">Щелчок по цели — выполнить · Esc — отмена</div>'}`;
+  /* место для карточки (в координатах окна): справа, слева, снизу или сверху от цели — где влезает и не закрывает ни цель, ни атакующего */
+  box.hidden = false;
+  if (!PHONE()) {
+    const br = $('#board').getBoundingClientRect(),
+      k = br.width / boardW(),
+      scr = q => ({ x: br.left + q.x * k, y: br.top + q.y * k }),
+      p = scr(tokPos(t)),
+      a0 = scr(tokPos(u)),
+      W = box.offsetWidth || 320,
+      H = box.offsetHeight || 220,
+      gap = CELL * k * 0.75,
+      vw = window.innerWidth,
+      vh = window.innerHeight;
+    const cand = [
+      [p.x + gap, p.y - H * 0.5],
+      [p.x - gap - W, p.y - H * 0.5],
+      [p.x - W / 2, p.y + CELL * k * 0.8],
+      [p.x - W / 2, p.y - CELL * k * 1.4 - H],
+    ];
+    let best = null;
+    for (const [x0, y0] of cand) {
+      const x = Math.max(4, Math.min(vw - W - 4, x0)),
+        y = Math.max(4, Math.min(vh - H - 4, y0));
+      const r = CELL * k * 0.45;
+      const cover = q => q.x > x - r && q.x < x + W + r && q.y > y - r * 2 && q.y < y + H + r;
+      const sc = Math.abs(x - x0) + Math.abs(y - y0) + (cover(a0) ? 1000 : 0) + (cover(p) ? 2000 : 0);
+      if (!best || sc < best.sc) best = { x, y, sc };
+    }
+    box.style.left = best.x.toFixed(0) + 'px';
+    box.style.top = best.y.toFixed(0) + 'px';
+  }
+  box.dataset.t = String(t.id);
+  const go = $('#fcGo'),
+    no = $('#fcNo');
+  if (go)
+    go.onclick = () => {
+      const id = S.act;
+      S.pendT = null;
+      run(() => perform(u, id, t));
+    };
+  if (no)
+    no.onclick = () => {
+      S.pendT = null;
+      renderHL();
+    };
 }
 export function renderHint() {
   const box = $('#hint');
@@ -319,10 +434,10 @@ export function renderTurn() {
       : (S.phase === 'pc' ? 'Ход героев' : 'Ход противников') + (human ? '' : ' · ИИ');
   let prompt;
   if (S.over) prompt = 'Бой окончен. Весь ход боя — в журнале.';
-  else if (S.editor) prompt = 'Выберите инструмент под полем и нажимайте на гексы.';
+  else if (S.editor) prompt = 'Выберите инструмент и нажимайте на гексы.';
   else if (!human) prompt = 'Противники ходят…';
   else if (S.busy) prompt = 'Действие выполняется…';
-  else if (!u || !canControl(u)) prompt = 'Выберите героя: нажмите на фигуру или на строку в списке.';
+  else if (!u || !canControl(u)) prompt = 'Выберите героя: нажмите на фигуру или на него в ленте сверху.';
   else if (S.act) {
     const a = A[S.act];
     const what =
@@ -352,13 +467,25 @@ export function renderTurn() {
         curse2: 'выберите врага в 3 гексах',
         habits: 'выберите врага',
       }[a.kind] || 'выберите цель';
-    prompt = `<b>${esc(u.name)}</b> · ${esc(a.name)}: ${what}`;
-  } else
-    prompt = `<b>${esc(u.name)}</b>: ${u.od ? 'выберите действие' : 'ОД закончились'}${u.side === S.phase ? ' · не потраченные ОД пойдут на защиту' : ''}`;
-  $('#ctx').innerHTML =
-    `<div class="rnd"><span class="cap">Раунд</span><span class="rn">${roman(S.round)}</span></div><div class="ph ${S.over ? 'over' : S.phase}">${phase}</div><div class="pr">${prompt}</div>
-    <div class="tg"><button type="button" id="tgLeg" title="Что означают значки над фигурами">Значки</button><button type="button" id="tgFc" aria-pressed="${!!UI.fc}" title="Шанс и ожидаемый урон над целями">Прогноз</button><button type="button" id="tgZoc" aria-pressed="${!!(UI.zoc && SET.zoc)}" ${SET.zoc ? '' : 'disabled'} title="${SET.zoc ? 'Гексы, выход из которых вызовет удар противника' : 'Зона контроля выключена в правилах'}">Зоны контроля</button></div>
-    ${S.over ? '<button type="button" class="primary end" id="btnAgain">Начать заново</button>' : `<button type="button" class="primary end" id="btnEnd" ${!human || S.busy || S.editor ? 'disabled' : ''}>Завершить ход<kbd>Enter</kbd></button>`}`;
+    const n = S.units.filter(t => canTarget(u, a, t)).length;
+    prompt = `${esc(a.name)}: ${what}${FC_KINDS.includes(a.kind) && n ? ` · целей в досягаемости: ${n}` : ''}`;
+  } else if (!u.od) prompt = 'ОД закончились';
+  else
+    prompt = defaultMove(u)
+      ? S.pathNote || 'нажмите на подсвеченную клетку, чтобы пойти, или выберите действие'
+      : 'выберите действие';
+  $('#rnd').innerHTML =
+    `<span class="cap">Раунд</span><span class="rn">${S.round}</span><span class="ph ${S.over ? 'over' : S.editor ? 'ed' : S.phase}">${phase}</span>`;
+  $('#endwrap').innerHTML = S.over
+    ? '<button type="button" class="primary end" id="btnAgain">Начать заново</button>'
+    : `<button type="button" class="primary end" id="btnEnd" ${!human || S.busy || S.editor ? 'disabled' : ''}>Завершить ход<kbd>Enter</kbd></button>`;
+  const who =
+    u && !S.editor
+      ? `<span class="who"><span class="gl ${u.side}">${esc(u.glyph)}</span><b>${esc(u.name)}</b></span>${u.down ? '' : `${painSegs(u, 'sm')}<span class="pips" title="Очки действий">${odPipsHTML(u)}</span>`}${u.side === S.phase && !u.down && !S.over && human ? '<span class="dim odn">неистраченные ОД уйдут на защиту</span>' : ''}`
+      : '';
+  $('#ctx').innerHTML = `${who}<span class="pr">${prompt}</span>`;
+  $('#bov').innerHTML =
+    `<button type="button" class="chipbtn" id="tgFc" aria-pressed="${!!UI.fc}" title="Шанс и Боль над целями и карточка прогноза у цели"><i></i>Прогноз</button><button type="button" class="chipbtn" id="tgZoc" aria-pressed="${!!(UI.zoc && SET.zoc)}" ${SET.zoc ? '' : 'disabled'} title="${SET.zoc ? 'Гексы, выход из которых вызовет удар противника' : 'Зона контроля выключена в правилах'}"><i></i>Зоны контроля</button><button type="button" class="chipbtn" id="tgLeg" title="Что означают значки над фигурами">Значки</button>`;
   $('#tgFc').onclick = () => {
     UI.fc = !UI.fc;
     saveUI();
@@ -378,34 +505,36 @@ export function renderTurn() {
       .map(k => T[k].name)
       .join(', ') || 'нет';
   $('#sceneInfo').innerHTML =
-    `<p>${SCN[S.scn] ? SCN[S.scn].goal : 'Своя расстановка.'}</p><p>${S.initWhy}</p><p>${`3 ОД, запас реакций, бросок против Стойкости; ловкачи: ${
+    `<h2 class="pt">${esc(SCN[S.scn] ? SCN[S.scn].name : 'Своя расстановка')}</h2><p>${SCN[S.scn] ? SCN[S.scn].goal : 'Своя расстановка.'}</p><p class="dim">${S.initWhy}</p><p class="dim">${`3 ОД, запас реакций, бросок против Стойкости; ловкачи: ${
       {
         dodge: 'бесплатное уклонение',
         od: '+1 ОД',
         none: 'без бонуса',
       }[SET.dexMode || 'dodge']
-    }. `}Группа: ${esc(party)}. Модель: ${'Ловкость и Сила'}${', блок щитом от Силы'}${SET.darkRules ? ', темнота' : ', темнота выключена'}${SET.zoc ? ', зона контроля' : ''}.</p>`;
+    }. `}Группа: ${esc(party)}. Модель: Ловкость и Сила, блок щитом от Силы${SET.darkRules ? ', темнота' : ', темнота выключена'}${SET.zoc ? ', зона контроля' : ''}${hasHeights() ? ', высоты' : ''}.</p>`;
   $('#btnEditor').classList.toggle('on', !!S.editor);
 }
 export function renderRoster() {
   const box = $('#roster');
-  const row = (u: Unit) => {
-    const p = hpFrac(u),
-      cur = u.side === S.phase && !S.over && !S.editor;
-    const pips = u.down ? '' : odPipsHTML(u);
-    return `<button type="button" class="ru ${u.side}${S.sel === u.id ? ' sel' : ''}${u.down ? ' down' : ''}${cur && !u.down && u.od === 0 ? ' spent' : ''}" data-id="${u.id}"><span class="g">${esc(u.glyph)}</span><span class="nm">${esc(u.name)}</span><span class="pips" title="Очки действий и активная защита">${pips}</span><span class="mb"><i style="width:${p * 100}%;background:${hpCol(p)}"></i></span><span class="hpn" title="${'Боль / предел'}">${hpNum(u)}</span><span class="st">${u.down ? downTxt(u) : fxChips(u)}</span></button>`;
+  const chip = (u: Unit) => {
+    const cur = u.side === S.phase && !S.over && !S.editor;
+    const tip = `${u.name}: ${u.down ? downTxt(u) : `Боль ${Math.min(limOf(u), painOf(u))} из ${limOf(u)}${onEdge(u) ? ', на пороге' : ''}, ОД ${u.od}`}`;
+    const num = (u.name.match(/ (\d+)$/) || [])[1];
+    return `<button type="button" class="uc ${u.side}${S.sel === u.id ? ' sel' : ''}${u.down ? ' down' : ''}${cur && !u.down && u.od === 0 ? ' spent' : ''}" data-id="${u.id}" title="${esc(tip)}" aria-label="${esc(tip)}"><span class="g">${esc(u.glyph)}${num ? `<sup>${num}</sup>` : ''}</span><span class="ub"><span class="nm">${esc(u.name)}</span><span class="ul">${u.down ? `<span class="dt">${downTxt(u)}</span>` : painSegs(u, 'sm') + `<span class="pips">${odPipsHTML(u)}</span>`}</span></span></button>`;
   };
   const grp = (side, title) => {
     const us = S.units.filter(u => u.side === side);
     if (!us.length) return '';
     const al = us.filter(u => !u.down).length;
-    return `<div class="rg ${side}"><div class="rgh"><span>${title}</span><span class="cnt">${al}/${us.length}</span>${S.phase === side && !S.over && !S.editor ? '<span class="now">ходят</span>' : ''}</div>${us.map(row).join('')}</div>`;
+    return `<div class="rg ${side}"><span class="rgh"><b>${title}</b><span class="cnt">${al}/${us.length}</span></span>${us.map(chip).join('')}</div>`;
   };
-  box.innerHTML = grp('pc', 'Герои') + grp('en', 'Противники');
+  box.innerHTML = grp('pc', 'Герои') + '<span class="rsep"></span>' + grp('en', 'Противники');
   box.querySelectorAll('[data-id]').forEach(b => {
     b.onclick = () => {
       S.sel = +b.dataset.id;
       S.act = null;
+      S.pendT = null;
+      S.pathNote = null;
       render();
     };
     b.onmouseenter = () => peek(+b.dataset.id);
@@ -420,32 +549,39 @@ export function renderActs() {
   }
   const u = selUnit();
   if (!u || u.down) {
-    box.innerHTML = `<div class="dock-empty">${u ? esc(u.name) + ' вне боя.' : 'Нажмите на бойца на поле или в списке, чтобы увидеть его действия.'}</div>`;
+    box.innerHTML = `<div class="dock-empty">${u ? esc(u.name) + ' вне боя.' : 'Нажмите на бойца на поле или в ленте сверху, чтобы увидеть его действия.'}</div>`;
     return;
   }
   const ids = visibleActs(u),
     ctrl = !S.busy && !S.over && u.side === S.phase && isHuman(u.side);
-  const G = [[], [], [], [], []];
+  const G = [[], [], [], [], []],
+    off = [];
   ids.forEach(id => {
-    if (A[id]) G[actGroup(id, A[id])].push(id);
+    if (!A[id]) return;
+    if (ctrl && !actState(u, id).ok) off.push(id);
+    else G[actGroup(id, A[id])].push(id);
   });
-  const GN = ['Шаг', 'Удар', 'Умение', 'Вещи', 'Реакция'];
-  let n = 0,
-    html = '';
+  const GN = ['Шаг', 'Атака', 'Умения', 'Вещи', 'Подготовка'];
+  const dflt = defaultMove(u);
+  let n = 0;
+  const btn = (id, numbered) => {
+    const a = A[id],
+      st = actState(u, id),
+      cost = actCost(u, id);
+    const k = numbered && ctrl && st.ok && n < 9 ? ++n : 0;
+    const sel = S.act === id || (!S.act && id === 'move' && dflt);
+    return `<button type="button" class="act${sel ? ' sel' : ''}${!S.act && id === 'move' && dflt ? ' dflt' : ''}${st.ok ? '' : ' off'}${a.pending ? ' pd' : ''}" data-act="${id}"${k ? ` data-key="${k}"` : ''} aria-disabled="${st.ok ? 'false' : 'true'}"><span class="n">${esc(a.name)}</span><span class="m">${!st.ok && ctrl && st.why ? `<em>${st.why}</em>` : actMeta(u, id, a)}</span><span class="c" title="${cost} ОД">${cost ? '<b></b>'.repeat(cost) : '<b class="z"></b>'}</span>${k ? `<kbd>${k}</kbd>` : ''}</button>`;
+  };
+  let html = '<div class="agroups">';
   [0, 1, 2, 4, 3].forEach(gi => {
     const g = G[gi];
     if (!g.length) return;
-    html += `<div class="ag"><div class="agt">`;
-    g.forEach((id, k) => {
-      n++;
-      const a = A[id],
-        st = actState(u, id),
-        cost = actCost(u, id);
-      const btn = `<button type="button" class="act${S.act === id ? ' sel' : ''}${st.ok ? '' : ' off'}${a.pending ? ' pd' : ''}" data-act="${id}" aria-disabled="${st.ok ? 'false' : 'true'}"><span class="n">${esc(a.name)}</span><span class="c" title="${cost} ОД">${cost ? '<b></b>'.repeat(cost) : '<b class="z"></b>'}</span><span class="m">${!st.ok && ctrl && st.why ? `<em>${st.why}</em>` : actMeta(u, id, a)}</span><span class="k">${n <= 9 ? n : ''}</span></button>`;
-      html += k ? btn : `<span class="agh"><div class="agn">${GN[gi]}</div>${btn}</span>`;
-    });
-    html += '</div></div>';
+    html += `<div class="ag"><span class="agn">${GN[gi]}</span><div class="agb">${g.map(id => btn(id, true)).join('')}</div></div>`;
   });
+  if (off.length)
+    html += `<div class="ag"><span class="agn" aria-hidden="true">&nbsp;</span><div class="agb"><button type="button" class="act more" id="btnMore" aria-expanded="${!!UI.more}"><span class="n">${UI.more ? 'Скрыть недоступные' : 'Ещё ' + off.length}</span><span class="m">${UI.more ? '' : 'сейчас недоступны'}</span></button></div></div>`;
+  html += '</div>';
+  if (off.length && UI.more) html += `<div class="agoff">${off.map(id => btn(id, false)).join('')}</div>`;
   const left = ctrl ? alive(S.phase).filter(o => o.od > 0 && !o.skipped) : [];
   box.innerHTML =
     html +
@@ -458,11 +594,19 @@ export function renderActs() {
       (b.onclick = () => {
         S.sel = +b.dataset.go;
         S.act = null;
+        S.pendT = null;
         render();
       }),
   );
   const ai = $('#btnAiOne');
   if (ai) ai.onclick = () => run(() => aiTurn(u));
+  const more = $('#btnMore');
+  if (more)
+    more.onclick = () => {
+      UI.more = !UI.more;
+      saveUI();
+      renderActs();
+    };
   box.querySelectorAll('[data-act]').forEach(b => {
     const id = b.dataset.act;
     b.onclick = () => {
@@ -490,11 +634,10 @@ export function renderCard() {
     box = $('#card');
   if (!u) {
     box.innerHTML =
-      '<div class="sheet-empty"><h2>Лист бойца</h2><p>Нажмите на фигуру на поле или на строку в списке слева: здесь появятся характеристики, раны и эффекты.</p></div>';
+      '<div class="sheet-empty"><h2>Лист бойца</h2><p>Нажмите на фигуру на поле или на бойца в ленте сверху: здесь появятся Боль, характеристики, раны и эффекты.</p></div>';
     return;
   }
-  const p = hpFrac(u),
-    f = disForm(u);
+  const f = disForm(u);
   const SHORT = {
     str: 'Сила',
     dex: 'Ловк.',
@@ -512,15 +655,7 @@ export function renderCard() {
   effs.push(...v2CardLines(u));
   for (const e of u.effects)
     if (!V2_EFF.has(e.type)) effs.push((EFF_RU[e.type] || e.type) + (e.left ? `, ходов осталось ${e.left}` : ''));
-  if (u.bleed) effs.push(`🩸 кровотечение: стаков ${u.bleed}`);
   if (u.numb) effs.push('🫥 онемел: следующий ход с 1 ОД');
-  for (const [ar, w] of Object.entries(u.wounds || {})) {
-    const pen = woundPenTxt(ar, w.deg);
-    effs.push(
-      `🩹 рана: ${AREA_RU[ar]}, ${WDEG_RU[w.deg]}${w.open ? ', открыта' : ', закрыта'}${pen ? ' · ' + pen : ''}`,
-    );
-  }
-  if (u.wield && weaponsOf(u).length > 1) effs.push(`В руках: ${WNAME[u.wield] || u.wield}`);
   if (u.mustAttack) effs.push('⚔ следующее действие — атака оружием');
   if (u.ban && (u.turnNo || 0) <= u.ban.until && disOf(u, 'sad'))
     effs.push(`${DIS_ICON.sad} нельзя повторить «${esc(A[u.ban.id].name)}» до конца хода ${u.ban.until}`);
@@ -539,35 +674,59 @@ export function renderCard() {
     .map(k => `<option value="${k}" ${u.disorder === k ? 'selected' : ''}>${DIS[k][0]} → ${DIS[k][1]}</option>`)
     .join('')}</select>`;
   const pips = odPipsHTML(u);
-  const WSH = {
-    head: 'Гол.',
-    torso: 'Тело',
-    armL: 'Л.рука',
-    armR: 'П.рука',
-    legL: 'Л.нога',
-    legR: 'П.нога',
-  };
-  const wcell = ar => {
-    const w = (u.wounds || {})[ar];
-    return `<div class="wc d${w ? w.deg : 0}${w && w.open ? ' open' : ''}" title="${AREA_RU[ar]}: ${w ? WDEG_RU[w.deg] + ' рана, ' + (w.open ? 'открыта' : 'закрыта') : 'цела'}"><span>${WSH[ar]}</span><b>${w ? w.deg : '·'}</b></div>`;
-  };
   const inv = [`факелы <b>${u.torches || 0}</b>${u.torch ? ' и один в руке' : ''}`, `бинты <b>${u.bandages || 0}</b>`];
   if (u.traps) inv.push(`капканы <b>${u.traps}</b>`);
   for (const [id, n] of Object.entries(u.ammo || {}))
     if (A[id]) inv.push(`${esc(A[id].name.toLowerCase())} <b>${n}</b>`);
   const open = id => (UI.det[id] || (id === 'dGm' && S.editor) ? 'open' : '');
-  let html = `<div class="sh-hd"><div class="gl ${u.side}">${esc(u.glyph)}</div><div><div class="nm">${esc(u.name)}</div><div class="sd">${u.side === 'pc' ? 'герой' : 'противник'}${sz(u) > 1 ? ' · занимает 3 гекса' : ''}${u.wield && weaponsOf(u).length > 1 ? ' · в руках ' + (WNAME[u.wield] || u.wield) : ''}${u.down ? ' · вне боя' : ''}</div></div>
+  const L = limOf(u),
+    pn = Math.min(L, painOf(u)),
+    pen = painPen(u),
+    lv = hasHeights() ? hAt(u.x, u.y) : 0;
+  const sub = [
+    u.side === 'pc' ? 'герой' : 'противник',
+    sz(u) > 1 ? 'занимает 3 гекса' : '',
+    u.wield && weaponsOf(u).length > 1 ? 'в руках ' + (WNAME[u.wield] || u.wield) : '',
+    lv ? 'на высоте ' + lv : '',
+    u.down ? 'вне боя' : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const painCap = u.down
+    ? downTxt(u)
+    : onEdge(u)
+      ? 'на пороге: любая новая Боль — без сознания'
+      : `${pen ? `−${pen} к атакам и умениям` : 'штрафа пока нет'} · ${u.side === 'pc' ? 'до порога' : 'до выбывания'} ${L - pn}`;
+  const W = u.wounds || {};
+  const zones = AREAS.map(ar => {
+    const w = W[ar];
+    return `<i class="z ${ar}${w ? ' d' + Math.min(3, w.deg) : ''}${w && w.open ? ' open' : ''}"></i>`;
+  }).join('');
+  const wl = Object.entries(W).map(([ar, w]: [string, any]) => {
+    const wp = woundPenTxt(ar, w.deg);
+    return `<span class="wln d${Math.min(3, w.deg)}"><b>${AREA_RU[ar]}</b> — ${WDEG_RU[w.deg]} рана, ${w.open ? 'открыта' : 'закрыта'}${wp ? ' · ' + wp : ''}</span>`;
+  });
+  const tags = [];
+  if (u.bleed) tags.push(`<span class="tag blood">Кровотечение ×${u.bleed}: 1 Боль в начале хода</span>`);
+  if (u.torch) tags.push('<span class="tag fire">Факел в руке</span>');
+  if (u.prone && !u.down) tags.push('<span class="tag">Сбит с ног</span>');
+  let html = `<div class="sh-hd"><div class="gl ${u.side}">${esc(u.glyph)}</div><div><div class="nm">${esc(u.name)}</div><div class="sd">${sub}</div></div>
     <div class="sh-od"><span class="pips" title="${`Очки действий: ${u.od} из ${odMax(u)}. Не потраченные в свой ход — запас реакций до следующего хода`}">${pips}</span></div></div>
-    <div class="hpline"><div class="bar"><i style="width:${p * 100}%;background:${hpCol(p)}"></i></div><span class="v" title="${'Боль / предел. Каждые 2 Боли — −1 к атакам и способностям. Герой на пределе — «на пороге», дальше без сознания; противник на пределе выбывает'}">${hpVal(u)}</span></div>
+    <div class="painbox${onEdge(u) ? ' edge' : ''}${u.down ? ' down' : ''}" title="Каждые 2 Боли — −1 к атакам и способностям. Герой на пределе — «на пороге», дальше без сознания; противник на пределе выбывает"><div class="pbh"><span class="cap">Боль</span><span class="pv"><b>${pn}</b> / ${L}</span></div>${painSegs(u, 'lg')}<div class="pbc">${painCap}</div></div>
     <div class="stats">${['str', 'dex', 'int', 'cha'].map(statBox).join('')}
-      ${`<div title="Телосложение: из него считается Стойкость"><b>${conOf(u)}</b><span>Тел.</span></div><div class="der" title="Стойкость = ${RBASE()} + Телосложение. Атака попадает всегда; разница броска со Стойкостью решает степень: +5 — усиленный, +10 — критический"><b>${resist(u)}</b><span>Стойкость</span></div><div title="Прочность брони сейчас / в начале боя. Броня гасит половину текущей прочности (вверх) от каждого удара; колющее усиленным и критическим — на 1 меньше. Прочность стирают крит, дробящее усиленным и Сила 7+ вблизи"><b>${armorTxt(u)}</b><span>Броня</span></div><div title="Гексов за 1 ОД"><b>${speedOf(u)}</b><span>Скорость</span></div></div>`}
-
-    <div class="wounds">${AREAS.map(wcell).join('')}<div class="wc bl${u.bleed ? ' open' : ''}" title="${'Стаки кровотечения: в начале своего хода 1 Боль и −1 стак; открытая рана даёт +1 стак'}"><span>Кровь</span><b>${u.bleed || '·'}</b></div></div>
-    ${`<div class="inv">мастерство: ближний бой <b>${mast(u)}</b> · дальний бой <b>${mast(u, true)}</b> · магия <b>${mastMg(u)}</b></div>`}
+      <div title="Телосложение: из него считается Стойкость"><b>${conOf(u)}</b><span>Тел.</span></div><div class="der" title="Стойкость = ${RBASE()} + Телосложение. Атака попадает всегда; разница броска со Стойкостью решает степень: +5 — усиленный, +10 — критический"><b>${resist(u)}</b><span>Стойкость</span></div><div title="Прочность брони сейчас / в начале боя. Броня гасит половину текущей прочности (вверх) от каждого удара; колющее усиленным и критическим — на 1 меньше. Прочность стирают крит, дробящее усиленным и Сила 7+ вблизи"><b>${armorTxt(u)}</b><span>Броня</span></div><div title="Гексов за 1 ОД"><b>${speedOf(u)}</b><span>Скорость</span></div></div>
+    <div class="bodyrow"><div class="body" aria-hidden="true">${zones}</div><div class="wl">${wl.length ? wl.join('') : '<span class="dim">Ран нет</span>'}${tags.length ? `<div class="tags">${tags.join('')}</div>` : ''}</div></div>
+    <div class="inv">мастерство: ближний бой <b>${mast(u)}</b> · дальний бой <b>${mast(u, true)}</b> · магия <b>${mastMg(u)}</b></div>
     <div class="inv">${inv.join(' · ')} · ${LIGHT_RU[unitLight(u)]}${u.nv ? ', ночное зрение' : darkPen(u) ? ' (−5 к атакам и защите)' : ''}</div>`;
-  if (effs.length) html += `<div class="chips">${effs.map(e => `<span class="chip st">${e}</span>`).join('')}</div>`;
+  if (effs.length) html += `<ul class="effl">${effs.map(e => `<li>${e}</li>`).join('')}</ul>`;
   if (u.disorder && u.will != null && f)
     html += `<div class="dis">${f ? `${DIS_ICON[u.disorder]} ${DIS[u.disorder][f - 1]} (${f === 1 ? 'слабая' : 'сильная'} форма): ${disDesc(u.disorder, f)}` : 'Расстройство подавлено Воодушевлением.'}</div>`;
+  const last = (S.log || [])
+    .filter(e => e.cls === 'atk' || e.cls === 'ev')
+    .slice(-4)
+    .reverse();
+  if (last.length)
+    html += `<div class="mini"><div class="cap">Последнее</div>${last.map(e => `<div class="le ${e.cls}">${e.html}</div>`).join('')}<button type="button" class="lk" id="toLog">Весь журнал</button></div>`;
   html += `<details class="sec" id="dDet" ${open('dDet')}><summary>Расчёт защиты и атаки</summary><dl class="kv">
     ${`<dt>Стойкость</dt><dd><b>${resist(u)}</b> <span class="dim">= ${RBASE()} + Телосложение ${conOf(u)}${hasEff(u, 'weak2') ? ' − Слабость ' + weakMag(u) : ''}; против неё бросают атаку</span></dd><dt>Запас реакций</dt><dd><b>${u.side === S.phase ? '—' : u.od}</b> <span class="dim">не потраченные в свой ход ОД: защита, удар из зоны, подготовка${SET.dexMode === 'dodge' && stat(u, 'dex') >= 7 ? '; плюс одно бесплатное уклонение за раунд' : ''}</span></dd>`}
     <dt>Активная защита</dt><dd>${
@@ -611,6 +770,8 @@ export function renderCard() {
   }
   html += '</details>';
   box.innerHTML = html;
+  const tl = $('#toLog');
+  if (tl) tl.onclick = () => setTab('log');
   box.querySelectorAll('[data-w]').forEach(
     b =>
       (b.onclick = () => {
@@ -652,7 +813,25 @@ export function renderCard() {
       render();
     };
 }
+/* Вкладки правой панели: Боец, Журнал, Сцена. */
+export function setTab(t) {
+  UI.tab = t;
+  saveUI();
+  const side = document.querySelector('.side') as HTMLElement;
+  if (side) side.dataset.tab = t;
+  document
+    .querySelectorAll('#stabs [data-tab]')
+    .forEach(b => b.setAttribute('aria-selected', String((b as HTMLElement).dataset.tab === t)));
+  if (t === 'log') {
+    const lg = $('#log');
+    lg.scrollTop = lg.scrollHeight;
+  }
+}
 export function initUI2() {
+  document
+    .querySelectorAll('#stabs [data-tab]')
+    .forEach(b => ((b as HTMLElement).onclick = () => setTab((b as HTMLElement).dataset.tab)));
+  setTab(UI.tab || 'card');
   const lf = $('#logf'),
     setF = f => {
       UI.logF = f;

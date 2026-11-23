@@ -17,14 +17,16 @@ import {
   torchAt,
   unitAt,
 } from '../rules/geometry';
+import { hAt, hasHeights, isStairs } from '../rules/height';
 import { lassoTarget } from '../rules/lasso';
 import { darkPen, lightGrid, lightSources } from '../rules/light';
 import { fireLine, fireSources, validFlash } from '../rules/magic';
 import { hasEff, speedOf } from '../rules/stats';
 import { SET } from '../settings';
 import { S, selUnit } from '../state';
-import { UI, renderForecast, zocPreview } from './panels';
-import { fxChips, fxNames, hpFrac, odPipsHTML } from './status';
+import { UI, effAct, renderForecast, zocPreview } from './panels';
+import { fxChips, fxNames, odPipsHTML } from './status';
+import { limOf, onEdge, painOf } from '../rules/pain';
 import { $, REDUCED, cheb, el, hash, hd, key, sz, unkey } from '../util';
 export let CELL = 46;
 export function appendLog(e) {
@@ -36,12 +38,21 @@ export function appendLog(e) {
 export const SQ3 = Math.sqrt(3);
 
 /* Гексагоны вершиной вверх: CELL — ширина гекса, ряды через CELL·√3/2, нечётные ряды сдвинуты на полгекса вправо. */
-export function hc(x, y) {
+export function hc0(x, y) {
   return {
     x: (x + 0.5 + (y & 1 ? 0.5 : 0)) * CELL,
     y: TOPM() + ((y * CELL * SQ3) / 2 + CELL / SQ3) * KY,
   };
 }
+/* Центр верхней грани клетки: поднятая клетка рисуется выше на LVL за уровень. */
+export const LVL = () => CELL * 0.34;
+export function hc(x, y) {
+  const c = hc0(x, y);
+  if (S && S.hgt) c.y -= hAt(x, y) * LVL();
+  return c;
+}
+/* Подпись высот: если поменялась, кликабельные гексы пересобираются. */
+export const hgtSig = () => (S && S.hgt ? Object.entries(S.hgt).join(';') : '');
 export const boardW = () => (S.w + 0.5) * CELL,
   boardH = () => TOPM() + (((S.h - 1) * CELL * SQ3) / 2 + (CELL * 2) / SQ3) * KY + CELL * 0.45;
 export function hexPts(cx, cy, k = 1) {
@@ -126,11 +137,19 @@ export function layoutBoard() {
     b = $('#board');
   b.style.width = W + 'px';
   b.style.height = H + 'px';
+  syncHexes();
+  drawFloor();
+  drawLight(performance.now());
+  renderTokens();
+}
+export function syncHexes() {
+  const W = boardW(),
+    H = boardH();
   const hl = $('#hl');
   hl.setAttribute('width', W);
   hl.setAttribute('height', H);
   hl.setAttribute('viewBox', `0 0 ${W} ${H}`);
-  const v = CELL + 'x' + S.w + 'x' + S.h;
+  const v = CELL + 'x' + S.w + 'x' + S.h + 'x' + hgtSig();
   if (hl._v !== v) {
     hl._v = v;
     hl.innerHTML = '';
@@ -151,9 +170,6 @@ export function layoutBoard() {
         hl.appendChild(p);
       }
   }
-  drawFloor();
-  drawLight(performance.now());
-  renderTokens();
 }
 export function sizeCanvas(c) {
   const dpr = window.devicePixelRatio || 1,
@@ -175,7 +191,99 @@ export const floorAt = (x, y) => inB(x, y) && !S.walls.has(key(x, y));
 export function wallH(x, y) {
   const ul = x + (y & 1 ? 0 : -1),
     ur = x + (y & 1 ? 1 : 0);
-  return floorAt(ul, y - 1) || floorAt(ur, y - 1) ? CELL * 0.2 : CELL * 0.8;
+  let base = floorAt(ul, y - 1) || floorAt(ur, y - 1) ? CELL * 0.2 : CELL * 0.8;
+  if (hasHeights()) {
+    let m = 0;
+    for (const [dx, dy] of y & 1
+      ? [
+          [1, 0],
+          [1, -1],
+          [0, -1],
+          [-1, 0],
+          [0, 1],
+          [1, 1],
+        ]
+      : [
+          [1, 0],
+          [0, -1],
+          [-1, -1],
+          [-1, 0],
+          [-1, 1],
+          [0, 1],
+        ])
+      if (floorAt(x + dx, y + dy)) m = Math.max(m, hAt(x + dx, y + dy));
+    if (m) base = Math.max(base, m * LVL() + CELL * 0.2);
+  }
+  return base;
+}
+/* Поднятая клетка: призма от пола до своего уровня, светлее с высотой; лестница — ступени, уровень подписан. */
+export function drawRaised(g, x, y) {
+  const lv = hAt(x, y),
+    c0 = hc0(x, y),
+    h = hash(x, y),
+    v = (64 + h * 16 + lv * 7) | 0,
+    cs = CELL;
+  const pr = prism(
+    g,
+    c0,
+    lv * LVL(),
+    `rgb(${v + 2},${v + 8},${v + 18})`,
+    `rgb(${v - 22},${v - 20},${v - 12})`,
+    `rgb(${v - 34},${v - 32},${v - 24})`,
+  );
+  const c = hc(x, y);
+  /* кромка уступа: светлая линия по краю, за которым ниже */
+  const q = pr.q,
+    o = y & 1,
+    EDGE = [
+      [0, 1, x + o, y - 1],
+      [1, 2, x + 1, y],
+      [2, 3, x + o, y + 1],
+      [3, 4, x - 1 + o, y + 1],
+      [4, 5, x - 1, y],
+      [5, 0, x - 1 + o, y - 1],
+    ];
+  g.strokeStyle = 'rgba(240,226,190,.38)';
+  g.lineWidth = Math.max(1.2, cs * 0.03);
+  g.beginPath();
+  for (const [i, j, nx, ny] of EDGE)
+    if (floorAt(nx, ny) && hAt(nx, ny) < lv) {
+      g.moveTo(q[i][0], q[i][1]);
+      g.lineTo(q[j][0], q[j][1]);
+    }
+  g.stroke();
+  hexPath(g, c.x, c.y - cs * 0.02, 0.8);
+  g.fillStyle = 'rgba(255,240,210,.045)';
+  g.fill();
+  if (isStairs(x, y)) {
+    g.strokeStyle = 'rgba(10,12,16,.55)';
+    g.lineWidth = Math.max(1.5, cs * 0.04);
+    g.beginPath();
+    for (const f of [-0.22, 0, 0.22]) {
+      g.moveTo(c.x - cs * 0.3, c.y + f * cs * KY);
+      g.lineTo(c.x + cs * 0.3, c.y + f * cs * KY);
+    }
+    g.stroke();
+  }
+  g.fillStyle = 'rgba(232,227,213,.42)';
+  g.font = `600 ${Math.max(9, cs * 0.2) | 0}px "Martian Mono",monospace`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText('+' + lv, c.x + cs * 0.26, c.y - cs * 0.14 * KY);
+  return pr;
+}
+/* Лестница на уровне 0 — только ступени на полу. */
+export function drawFlatStairs(g, x, y) {
+  const c = hc(x, y),
+    cs = CELL;
+  g.strokeStyle = 'rgba(10,12,16,.5)';
+  g.lineWidth = Math.max(1.5, cs * 0.04);
+  g.beginPath();
+  for (const f of [-0.22, 0, 0.22]) {
+    g.moveTo(c.x - cs * 0.3, c.y + f * cs * KY);
+    g.lineTo(c.x + cs * 0.3, c.y + f * cs * KY);
+  }
+  g.stroke();
 }
 export function prism(g, c, h, top, fl, fr, k?) {
   const p = hexPts(c.x, c.y, k || 1),
@@ -212,6 +320,7 @@ export function prism(g, c, h, top, fl, fr, k?) {
 }
 export function drawFloor() {
   if (!S || S.sim) return;
+  syncHexes();
   const g = sizeCanvas($('#floor')),
     cs = CELL,
     W = boardW(),
@@ -219,7 +328,7 @@ export function drawFloor() {
   g.clearRect(0, 0, W, H);
   for (let y = 0; y < S.h; y++)
     for (let x = 0; x < S.w; x++) {
-      if (S.walls.has(key(x, y))) continue;
+      if (S.walls.has(key(x, y)) || hAt(x, y) > 0) continue;
       const h = hash(x, y),
         c = hc(x, y),
         v = (58 + h * 20) | 0;
@@ -242,6 +351,8 @@ export function drawFloor() {
         g.stroke();
       }
     }
+  for (let y = 0; y < S.h; y++)
+    for (let x = 0; x < S.w; x++) if (isStairs(x, y) && !hAt(x, y) && floorAt(x, y)) drawFlatStairs(g, x, y);
   for (const tr of S.traps || []) {
     const c = hc(tr.x, tr.y);
     g.save();
@@ -277,6 +388,10 @@ export function drawFloor() {
       const k = key(x, y),
         c = hc(x, y),
         h = hash(x, y);
+      if (!S.walls.has(k) && hAt(x, y) > 0) {
+        drawRaised(g, x, y);
+        continue;
+      }
       if (S.walls.has(k)) {
         const wh = wallH(x, y),
           t = (74 + h * 14) | 0;
@@ -389,7 +504,7 @@ export function renderTokens() {
         'tok3',
         '<div class="gr"></div><div class="fig c">' +
           FIG_SVG +
-          '</div><div class="drip"></div><div class="stars">✦ ✦</div><div class="bar"><i></i></div><div class="od"></div><div class="fxs"></div><div class="fxn"></div>',
+          '</div><div class="drip"></div><div class="stars">✦ ✦</div><div class="bar"></div><div class="od"></div><div class="fxs"></div><div class="fxn"></div>',
       );
       d.dataset.id = u.id;
       box.appendChild(d);
@@ -450,10 +565,21 @@ export function renderTokens() {
     fig.setAttribute('data-y', u.y);
     const tx = d.querySelector('text');
     if (tx.textContent !== u.glyph) tx.textContent = u.glyph;
-    const hp = hpFrac(u),
-      bar = d.querySelector('.bar i');
-    bar.style.width = hp * 100 + '%';
-    bar.style.background = hp > 0.5 ? 'var(--good)' : hp > 0.25 ? 'var(--warn)' : 'var(--bad)';
+    /* шкала Боли делениями; новые деления вспыхивают */
+    const L = limOf(u),
+      pn = Math.min(L, painOf(u)),
+      bar = d.querySelector('.bar'),
+      bk = L + ':' + pn + (onEdge(u) ? 'e' : '');
+    if (bar._k !== bk) {
+      const prev = bar._p == null ? pn : bar._p;
+      let h = '';
+      for (let i = 0; i < L; i++)
+        h += `<i class="${i < pn ? 'on' : ''}${i >= prev && i < pn && !REDUCED ? ' new' : ''}"></i>`;
+      bar.innerHTML = h;
+      bar.className = 'bar segs' + (onEdge(u) ? ' edge' : '');
+      bar._k = bk;
+      bar._p = pn;
+    }
     d.querySelector('.od').innerHTML = u.down ? '' : odPipsHTML(u);
     const fb = d.querySelector('.fxs'),
       html = u.down ? '' : fxChips(u);
@@ -575,8 +701,8 @@ export function renderHL() {
   const u = selUnit();
   if (S.editor) {
     for (let i = 0; i < cls.length; i++) cls[i] = ' ed';
-  } else if (u && S.act && canControl(u)) {
-    const a = A[S.act];
+  } else if (u && effAct(u) && canControl(u)) {
+    const a = A[effAct(u)];
     if (a.kind === 'move') {
       const sp = speedOf(u),
         dist = bfs(u, {

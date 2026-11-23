@@ -10,6 +10,10 @@ export const view = {
   flash(_u: any): void {},
   hideTip(): void {},
   appendLog(_e: any): void {},
+  /* Проиграть событие боя (удар, «на пороге»); правила ждут, пока экран его покажет. */
+  play(_e: any): Promise<void> {
+    return Promise.resolve();
+  },
   async askChoice(_title: string, _html: string, _opts: any[]): Promise<any> {
     return null;
   },
