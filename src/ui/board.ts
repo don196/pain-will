@@ -28,6 +28,7 @@ import { S, selUnit } from '../state';
 import { UI, effAct, renderForecast, zocPreview } from './panels';
 import { fxChips, fxNames, odPipsHTML } from './status';
 import { limOf, onEdge, painOf } from '../rules/pain';
+import { sfx, syncDrone } from './sound';
 import { $, REDUCED, cheb, el, esc, hash, hd, key, pct, sz, unkey } from '../util';
 export let CELL = 46;
 export function appendLog(e) {
@@ -38,12 +39,54 @@ export function appendLog(e) {
 }
 export const SQ3 = Math.sqrt(3);
 
-/* Гексагоны вершиной вверх: CELL — ширина гекса, ряды через CELL·√3/2, нечётные ряды сдвинуты на полгекса вправо. */
+/* Гексагоны вершиной вверх: CELL — ширина гекса, ряды через CELL·√3/2, нечётные ряды сдвинуты на полгекса вправо.
+   Плоскость поля (px, py) проецируется на экран: обычно как есть со сжатием по вертикали (KY),
+   а в повороте для телефона — на четверть оборота: левый край поля внизу, верхний ряд слева.
+   Высота стен и уступов всегда растёт вверх по экрану, поэтому объём не ломается. */
+export let ROT = false;
+export function setRot(v: boolean) {
+  ROT = v;
+}
+const PW = () => (S.w + 0.5) * CELL,
+  PH = () => ((S.h - 1) * CELL * SQ3) / 2 + (CELL * 2) / SQ3;
+function proj(px, py) {
+  return ROT ? { x: py, y: TOPM() + (PW() - px) * KY } : { x: px, y: TOPM() + py * KY };
+}
 export function hc0(x, y) {
-  return {
-    x: (x + 0.5 + (y & 1 ? 0.5 : 0)) * CELL,
-    y: TOPM() + ((y * CELL * SQ3) / 2 + CELL / SQ3) * KY,
-  };
+  return proj((x + 0.5 + (y & 1 ? 0.5 : 0)) * CELL, (y * CELL * SQ3) / 2 + CELL / SQ3);
+}
+/* Соседи клетки в смещённых рядах. */
+export const NB = y =>
+  y & 1
+    ? [
+        [1, 0],
+        [1, -1],
+        [0, -1],
+        [-1, 0],
+        [0, 1],
+        [1, 1],
+      ]
+    : [
+        [1, 0],
+        [0, -1],
+        [-1, -1],
+        [-1, 0],
+        [-1, 1],
+        [0, 1],
+      ];
+/* Порядок рисования: от дальних к ближним по экрану. */
+let ORD = null,
+  ORDK = '';
+export function cellOrder() {
+  const k = S.w + 'x' + S.h + (ROT ? 'r' : '');
+  if (ORDK !== k) {
+    ORDK = k;
+    ORD = [];
+    for (let y = 0; y < S.h; y++) for (let x = 0; x < S.w; x++) ORD.push([x, y]);
+    const sy = ([x, y]) => (ROT ? -((x + 0.5 + (y & 1 ? 0.5 : 0)) * 2) : y * 2);
+    ORD.sort((a, b) => sy(a) - sy(b) || (ROT ? a[1] - b[1] : a[0] - b[0]));
+  }
+  return ORD;
 }
 /* Центр верхней грани клетки: поднятая клетка рисуется выше на LVL за уровень. */
 export const LVL = () => CELL * 0.34;
@@ -54,19 +97,21 @@ export function hc(x, y) {
 }
 /* Подпись высот: если поменялась, кликабельные гексы пересобираются. */
 export const hgtSig = () => (S && S.hgt ? Object.entries(S.hgt).join(';') : '');
-export const boardW = () => (S.w + 0.5) * CELL,
-  boardH = () => TOPM() + (((S.h - 1) * CELL * SQ3) / 2 + (CELL * 2) / SQ3) * KY + CELL * 0.45;
+export const boardW = () => (ROT ? PH() : PW()),
+  boardH = () => TOPM() + (ROT ? PW() : PH()) * KY + CELL * 0.45;
 export function hexPts(cx, cy, k = 1) {
-  const r = (CELL / SQ3) * k * KY,
+  const r = (CELL / SQ3) * k,
     w = (CELL / 2) * k;
-  return [
-    [cx, cy - r],
-    [cx + w, cy - r / 2],
-    [cx + w, cy + r / 2],
-    [cx, cy + r],
-    [cx - w, cy + r / 2],
-    [cx - w, cy - r / 2],
+  const d = [
+    [0, -r],
+    [w, -r / 2],
+    [w, r / 2],
+    [0, r],
+    [-w, r / 2],
+    [-w, -r / 2],
   ];
+  /* углы те же по смыслу (0 — к верхнему ряду), меняется только их место на экране */
+  return d.map(([dx, dy]) => (ROT ? [cx + dy, cy - dx * KY] : [cx + dx, cy + dy * KY]));
 }
 export function hexPath(g, cx, cy, k) {
   const p = hexPts(cx, cy, k);
@@ -125,12 +170,22 @@ export function computeCell() {
   const wide = window.innerWidth > 700 && wrap.clientHeight > 120;
   const aw = wrap.clientWidth - 22,
     ah = wide ? wrap.clientHeight - 22 : 99999;
+  const pw = S.w + 0.5,
+    ph = ((S.h - 1) * SQ3) / 2 + 2 / SQ3;
   return Math.max(
     wide ? 30 : 34,
-    Math.min(78, Math.floor(Math.min(aw / (S.w + 0.5), ah / ((((S.h - 1) * SQ3) / 2 + 2 / SQ3) * KY + 2.0)))),
+    Math.min(78, Math.floor(Math.min(aw / (ROT ? ph : pw), ah / ((ROT ? pw : ph) * KY + 2.0)))),
   );
 }
+/* Поворот: «авто» — на телефоне в портрете, если поле шире, чем выше. */
+export function wantRot() {
+  const m = UI.rot || 'auto';
+  if (m === 'on') return true;
+  if (m === 'off' || !S) return false;
+  return window.innerWidth <= 700 && window.innerHeight > window.innerWidth && S.w > S.h;
+}
 export function layoutBoard() {
+  setRot(wantRot());
   CELL = computeCell();
   document.documentElement.style.setProperty('--cell', CELL + 'px');
   const W = boardW(),
@@ -150,26 +205,25 @@ export function syncHexes() {
   hl.setAttribute('width', W);
   hl.setAttribute('height', H);
   hl.setAttribute('viewBox', `0 0 ${W} ${H}`);
-  const v = CELL + 'x' + S.w + 'x' + S.h + 'x' + hgtSig();
+  const v = CELL + 'x' + S.w + 'x' + S.h + 'x' + hgtSig() + (ROT ? 'r' : '');
   if (hl._v !== v) {
     hl._v = v;
     hl.innerHTML = '';
     const NS = 'http://www.w3.org/2000/svg';
-    for (let y = 0; y < S.h; y++)
-      for (let x = 0; x < S.w; x++) {
-        const p = document.createElementNS(NS, 'polygon'),
-          c = hc(x, y);
-        p.setAttribute(
-          'points',
-          hexPts(c.x, c.y, 0.98)
-            .map(q => q[0].toFixed(1) + ',' + q[1].toFixed(1))
-            .join(' '),
-        );
-        p.setAttribute('class', 'c');
-        p.setAttribute('data-x', String(x));
-        p.setAttribute('data-y', String(y));
-        hl.appendChild(p);
-      }
+    for (const [x, y] of cellOrder()) {
+      const p = document.createElementNS(NS, 'polygon'),
+        c = hc(x, y);
+      p.setAttribute(
+        'points',
+        hexPts(c.x, c.y, 0.98)
+          .map(q => q[0].toFixed(1) + ',' + q[1].toFixed(1))
+          .join(' '),
+      );
+      p.setAttribute('class', 'c');
+      p.setAttribute('data-x', String(x));
+      p.setAttribute('data-y', String(y));
+      hl.appendChild(p);
+    }
   }
 }
 export function sizeCanvas(c) {
@@ -190,29 +244,13 @@ export const floorAt = (x, y) => inB(x, y) && !S.walls.has(key(x, y));
 
 /* Срез стен: стена, за которой может кто-то стоять, рисуется низкой, остальные — в полный рост. */
 export function wallH(x, y) {
-  const ul = x + (y & 1 ? 0 : -1),
-    ur = x + (y & 1 ? 1 : 0);
-  let base = floorAt(ul, y - 1) || floorAt(ur, y - 1) ? CELL * 0.2 : CELL * 0.8;
+  /* за стеной (выше по экрану) есть пол — значит, там может стоять боец */
+  const cy = hc0(x, y).y;
+  const behind = NB(y).some(([dx, dy]) => floorAt(x + dx, y + dy) && hc0(x + dx, y + dy).y < cy - CELL * 0.1);
+  let base = behind ? CELL * 0.2 : CELL * 0.8;
   if (hasHeights()) {
     let m = 0;
-    for (const [dx, dy] of y & 1
-      ? [
-          [1, 0],
-          [1, -1],
-          [0, -1],
-          [-1, 0],
-          [0, 1],
-          [1, 1],
-        ]
-      : [
-          [1, 0],
-          [0, -1],
-          [-1, -1],
-          [-1, 0],
-          [-1, 1],
-          [0, 1],
-        ])
-      if (floorAt(x + dx, y + dy)) m = Math.max(m, hAt(x + dx, y + dy));
+    for (const [dx, dy] of NB(y)) if (floorAt(x + dx, y + dy)) m = Math.max(m, hAt(x + dx, y + dy));
     if (m) base = Math.max(base, m * LVL() + CELL * 0.2);
   }
   return base;
@@ -297,10 +335,15 @@ export function prism(g, c, h, top, fl, fr, k?) {
     g.lineWidth = 1;
     g.stroke();
   };
-  face(5, 4, fl);
-  face(2, 1, fr);
-  face(4, 3, fl);
-  face(3, 2, fr);
+  /* видимы грани, обращённые к зрителю (вниз по экрану); левые темнее правых */
+  const cy0 = p.reduce((a, b) => a + b[1], 0) / 6,
+    cx0 = p.reduce((a, b) => a + b[0], 0) / 6;
+  for (let i = 0; i < 6; i++) {
+    const j = (i + 1) % 6,
+      my = (p[i][1] + p[j][1]) / 2,
+      mx = (p[i][0] + p[j][0]) / 2;
+    if (my >= cy0 - 0.01) face(i, j, mx <= cx0 + 0.01 ? fl : fr);
+  }
   g.beginPath();
   g.moveTo(q[0][0], q[0][1]);
   for (let i = 1; i < 6; i++) g.lineTo(q[i][0], q[i][1]);
@@ -309,9 +352,14 @@ export function prism(g, c, h, top, fl, fr, k?) {
   g.fill();
   g.strokeStyle = 'rgba(0,0,0,.6)';
   g.stroke();
+  /* передние углы слева направо — для кладки и дверей */
+  const front = [0, 1, 2, 3, 4, 5].filter(i => p[i][1] >= cy0 - 0.01).sort((a, b) => p[a][0] - p[b][0]);
+  const bot = front.reduce((a, b) => (p[b][1] > p[a][1] + 0.01 ? b : a), front[0]);
   return {
     p,
     q,
+    front,
+    bot,
   };
 }
 export function drawFloor() {
@@ -349,6 +397,28 @@ export function drawFloor() {
     }
   for (let y = 0; y < S.h; y++)
     for (let x = 0; x < S.w; x++) if (isStairs(x, y) && !hAt(x, y) && floorAt(x, y)) drawFlatStairs(g, x, y);
+  /* кровь на полу: где ранили и где истекали кровью */
+  for (const b of S.blood || []) {
+    if (!floorAt(b.x, b.y)) continue;
+    const c = hc(b.x, b.y),
+      h0 = hash(b.x * 7 + b.n, b.y * 13);
+    g.fillStyle = `rgba(${110 + ((h0 * 40) | 0)},14,12,${Math.min(0.75, 0.3 + b.n * 0.12)})`;
+    for (let i = 0; i < Math.min(5, 1 + b.n); i++) {
+      const hx = hash(b.x * 31 + i, b.y * 17 + i),
+        hy = hash(b.y * 29 + i, b.x * 11 + i);
+      g.beginPath();
+      g.ellipse(
+        c.x + (hx - 0.5) * cs * 0.5,
+        c.y + (hy - 0.5) * cs * 0.3 * KY,
+        cs * (0.08 + hx * 0.12),
+        cs * (0.05 + hy * 0.08) * KY + 1,
+        hx * 3,
+        0,
+        7,
+      );
+      g.fill();
+    }
+  }
   for (const tr of S.traps || []) {
     const c = hc(tr.x, tr.y);
     g.save();
@@ -379,115 +449,123 @@ export function drawFloor() {
       g.restore();
     }
   /* стены, двери и решётки — от дальних рядов к ближним */
-  for (let y = 0; y < S.h; y++)
-    for (let x = 0; x < S.w; x++) {
-      const k = key(x, y),
-        c = hc(x, y),
-        h = hash(x, y);
-      if (!S.walls.has(k) && hAt(x, y) > 0) {
-        drawRaised(g, x, y);
-        continue;
-      }
-      if (S.walls.has(k)) {
-        const wh = wallH(x, y),
-          t = (74 + h * 14) | 0;
-        const pr = prism(
-          g,
-          c,
-          wh,
-          `rgb(${t},${t + 8},${t + 20})`,
-          `rgb(${t - 30},${t - 25},${t - 14})`,
-          `rgb(${t - 44},${t - 40},${t - 30})`,
-        );
-        if (wh > cs * 0.5) {
-          g.strokeStyle = 'rgba(0,0,0,.35)';
-          g.beginPath();
-          for (const f of [0.35, 0.68]) {
-            g.moveTo(pr.p[4][0], pr.p[4][1] - wh * f);
-            g.lineTo(pr.p[3][0], pr.p[3][1] - wh * f);
-            g.lineTo(pr.p[2][0], pr.p[2][1] - wh * f);
-          }
-          g.stroke();
-        }
-        const tc = torchAt(x, y);
-        if (tc && !tc.floor) {
-          g.fillStyle = '#2b2018';
-          g.fillRect(c.x - cs * 0.04, c.y - wh * 0.5, cs * 0.08, cs * 0.22);
-          g.fillStyle = '#6b4a28';
-          g.fillRect(c.x - cs * 0.1, c.y - wh * 0.5 - cs * 0.03, cs * 0.2, cs * 0.07);
-        }
-      } else if (S.doors[k]) {
-        const d = S.doors[k];
-        if (d.open) {
-          prism(
-            g,
-            {
-              x: c.x - cs * 0.36,
-              y: c.y,
-            },
-            cs * 0.55,
-            '#6b4726',
-            '#4a3018',
-            '#3a2412',
-            0.22,
-          );
-          prism(
-            g,
-            {
-              x: c.x + cs * 0.36,
-              y: c.y,
-            },
-            cs * 0.55,
-            '#6b4726',
-            '#4a3018',
-            '#3a2412',
-            0.22,
-          );
-        } else {
-          const pr = prism(g, c, cs * 0.6, '#7a5230', '#5a3d22', '#48301a', 0.96);
-          g.strokeStyle = '#22150a';
-          g.lineWidth = 1.5;
-          g.beginPath();
-          g.moveTo(pr.p[3][0], pr.p[3][1]);
-          g.lineTo(pr.q[3][0], pr.q[3][1]);
-          g.stroke();
-          if (d.locked) {
-            g.fillStyle = '#e2b93b';
-            g.beginPath();
-            g.arc(c.x, c.y - cs * 0.12, cs * 0.08, 0, 7);
-            g.fill();
-          }
-        }
-      } else if (S.bars[k]) {
-        const b = S.bars[k];
-        g.strokeStyle = b.shoot ? '#9aa3ad' : '#5a646e';
-        g.lineWidth = Math.max(2, cs * 0.05);
+  for (const [x, y] of cellOrder()) {
+    const k = key(x, y),
+      c = hc(x, y),
+      h = hash(x, y);
+    if (!S.walls.has(k) && hAt(x, y) > 0) {
+      drawRaised(g, x, y);
+      continue;
+    }
+    if (S.walls.has(k)) {
+      const wh = wallH(x, y),
+        t = (74 + h * 14) | 0;
+      const pr = prism(
+        g,
+        c,
+        wh,
+        `rgb(${t},${t + 8},${t + 20})`,
+        `rgb(${t - 30},${t - 25},${t - 14})`,
+        `rgb(${t - 44},${t - 40},${t - 30})`,
+      );
+      if (wh > cs * 0.5) {
+        g.strokeStyle = 'rgba(0,0,0,.35)';
         g.beginPath();
-        for (let i = 0; i < 5; i++) {
-          const fx = c.x - cs * 0.4 + i * cs * 0.2;
-          g.moveTo(fx, c.y + cs * 0.08);
-          g.lineTo(fx, c.y - cs * 0.6);
-        }
-        g.moveTo(c.x - cs * 0.44, c.y - cs * 0.6);
-        g.lineTo(c.x + cs * 0.44, c.y - cs * 0.6);
-        g.moveTo(c.x - cs * 0.44, c.y - cs * 0.2);
-        g.lineTo(c.x + cs * 0.44, c.y - cs * 0.2);
+        for (const f of [0.35, 0.68])
+          pr.front.forEach((i, n) => (n ? g.lineTo : g.moveTo).call(g, pr.p[i][0], pr.p[i][1] - wh * f));
         g.stroke();
       }
+      const tc = torchAt(x, y);
+      if (tc && !tc.floor) {
+        g.fillStyle = '#2b2018';
+        g.fillRect(c.x - cs * 0.04, c.y - wh * 0.5, cs * 0.08, cs * 0.22);
+        g.fillStyle = '#6b4a28';
+        g.fillRect(c.x - cs * 0.1, c.y - wh * 0.5 - cs * 0.03, cs * 0.2, cs * 0.07);
+      }
+    } else if (S.doors[k]) {
+      const d = S.doors[k];
+      if (d.open) {
+        prism(
+          g,
+          {
+            x: c.x - cs * 0.36,
+            y: c.y,
+          },
+          cs * 0.55,
+          '#6b4726',
+          '#4a3018',
+          '#3a2412',
+          0.22,
+        );
+        prism(
+          g,
+          {
+            x: c.x + cs * 0.36,
+            y: c.y,
+          },
+          cs * 0.55,
+          '#6b4726',
+          '#4a3018',
+          '#3a2412',
+          0.22,
+        );
+      } else {
+        const pr = prism(g, c, cs * 0.6, '#7a5230', '#5a3d22', '#48301a', 0.96);
+        g.strokeStyle = '#22150a';
+        g.lineWidth = 1.5;
+        g.beginPath();
+        g.moveTo(pr.p[pr.bot][0], pr.p[pr.bot][1]);
+        g.lineTo(pr.q[pr.bot][0], pr.q[pr.bot][1]);
+        g.stroke();
+        if (d.locked) {
+          g.fillStyle = '#e2b93b';
+          g.beginPath();
+          g.arc(c.x, c.y - cs * 0.12, cs * 0.08, 0, 7);
+          g.fill();
+        }
+      }
+    } else if (S.bars[k]) {
+      const b = S.bars[k];
+      g.strokeStyle = b.shoot ? '#9aa3ad' : '#5a646e';
+      g.lineWidth = Math.max(2, cs * 0.05);
+      g.beginPath();
+      for (let i = 0; i < 5; i++) {
+        const fx = c.x - cs * 0.4 + i * cs * 0.2;
+        g.moveTo(fx, c.y + cs * 0.08);
+        g.lineTo(fx, c.y - cs * 0.6);
+      }
+      g.moveTo(c.x - cs * 0.44, c.y - cs * 0.6);
+      g.lineTo(c.x + cs * 0.44, c.y - cs * 0.6);
+      g.moveTo(c.x - cs * 0.44, c.y - cs * 0.2);
+      g.lineTo(c.x + cs * 0.44, c.y - cs * 0.2);
+      g.stroke();
     }
+  }
 }
-export const FIG_SVG = `<svg viewBox="0 0 40 60" aria-hidden="true">
-<path class="bd2" d="M7 58 Q6 33 20 29 Q34 33 33 58 Z"/><path class="bd1" d="M11 58 Q11 36 20 32 Q29 36 29 58 Z"/><path class="ol" d="M7 58 Q6 33 20 29 Q34 33 33 58 Z"/>
-<circle class="bd1" cx="20" cy="17" r="10"/><circle class="ol" cx="20" cy="17" r="10"/>
-<g class="x-shield"><path d="M1 34 h12 v10 q0 7 -6 10 q-6 -3 -6 -10 Z" fill="#c9d2dc" stroke="#05070a" stroke-width="1.4"/></g>
-<g class="x-torch"><rect x="33" y="24" width="3" height="16" fill="#5a3d22" stroke="#05070a" stroke-width=".8"/><ellipse cx="34.5" cy="19" rx="4" ry="7" fill="#ffcf70"/><ellipse cx="34.5" cy="21" rx="2.4" ry="4.5" fill="#f08a2a"/></g>
-<g class="x-rope"><ellipse cx="20" cy="40" rx="15" ry="5" fill="none" stroke="#e8d9a8" stroke-width="2.5"/><ellipse cx="20" cy="46" rx="15" ry="5" fill="none" stroke="#e8d9a8" stroke-width="2.5"/></g>
-<g class="x-eyes"><circle cx="16" cy="16" r="2.2" fill="#8ff7ff"/><circle cx="24" cy="16" r="2.2" fill="#8ff7ff"/></g>
-<g class="x-rip"><path d="M9 13 q3 -4 6 0 t6 0 t6 0 t6 0 M9 19 q3 -4 6 0 t6 0 t6 0 t6 0" fill="none" stroke="#cfe0ff" stroke-width="1.8"/></g>
-<g class="x-band"><rect x="9" y="12" width="22" height="7" fill="#000" stroke="#fff" stroke-width="1"/></g>
-<g class="x-mute"><path d="M15 21 l10 6 M25 21 l-10 6" stroke="#ff5a4a" stroke-width="2.6"/></g>
-<g class="x-prep"><path d="M36 6 v20 M31 11 h10" stroke="#e8e3d5" stroke-width="2.4"/></g>
-<text x="20" y="52"></text></svg>`;
+export const FIG_SVG = `<svg viewBox="0 0 44 48" aria-hidden="true">
+<path class="bd2" d="M4 47 Q3 25 22 21 Q41 25 40 47 Z"/><path class="bd1" d="M9 47 Q9 28 22 24.5 Q35 28 35 47 Z"/><path class="ol" d="M4 47 Q3 25 22 21 Q41 25 40 47 Z"/>
+<circle class="bd1" cx="22" cy="16.5" r="9.5"/><circle class="ol" cx="22" cy="16.5" r="9.5"/>
+<g class="x-shield"><path d="M1 27 h12 v9 q0 6 -6 9 q-6 -3 -6 -9 Z" fill="#c9d2dc" stroke="#05070a" stroke-width="1.4"/></g>
+<g class="x-torch"><rect x="37" y="20" width="3" height="14" fill="#5a3d22" stroke="#05070a" stroke-width=".8"/><ellipse cx="38.5" cy="15" rx="4" ry="6.5" fill="#ffcf70"/><ellipse cx="38.5" cy="17" rx="2.4" ry="4.2" fill="#f08a2a"/></g>
+<g class="x-rope"><ellipse cx="22" cy="33" rx="17" ry="4.5" fill="none" stroke="#e8d9a8" stroke-width="2.5"/><ellipse cx="22" cy="39" rx="17" ry="4.5" fill="none" stroke="#e8d9a8" stroke-width="2.5"/></g>
+<g class="x-eyes"><circle cx="18" cy="16" r="2.2" fill="#8ff7ff"/><circle cx="26" cy="16" r="2.2" fill="#8ff7ff"/></g>
+<g class="x-rip"><path d="M11 12 q3 -4 6 0 t6 0 t6 0 t6 0 M11 18 q3 -4 6 0 t6 0 t6 0 t6 0" fill="none" stroke="#cfe0ff" stroke-width="1.8"/></g>
+<g class="x-band"><rect x="12" y="12" width="20" height="6.5" fill="#000" stroke="#fff" stroke-width="1"/></g>
+<g class="x-mute"><path d="M17 20 l10 6 M27 20 l-10 6" stroke="#ff5a4a" stroke-width="2.6"/></g>
+<g class="x-prep"><path d="M40 3 v15 M35 8 h10" stroke="#e8e3d5" stroke-width="2.4"/></g>
+<g class="x-bow"><path d="M38 19 Q49 33 38 46" fill="none" stroke="#8a6a3c" stroke-width="2.6"/><path d="M38 19 L38 46" stroke="#d9cfb8" stroke-width="1"/></g>
+<g class="x-mage"><path d="M11.5 19 Q22 -4 32.5 19 Q28 12.5 22 12.5 Q16 12.5 11.5 19Z" fill="var(--b2)" stroke="#05070a" stroke-width="1.4"/><path d="M4 17 L5.5 47" stroke="#6a5130" stroke-width="2.4"/><circle cx="4" cy="16" r="3" fill="#b9a0e6"/></g>
+<g class="x-heavy"><ellipse cx="9" cy="27" rx="6.5" ry="4.5" fill="var(--b1)" stroke="#05070a" stroke-width="1.4"/><ellipse cx="35" cy="27" rx="6.5" ry="4.5" fill="var(--b1)" stroke="#05070a" stroke-width="1.4"/></g>
+<g class="x-blade"><path d="M36 26 L42 9" stroke="#c9d2dc" stroke-width="2.2"/><path d="M34 27 L39 25" stroke="#6a5130" stroke-width="2.4"/></g>
+<text x="22" y="41"></text></svg>`;
+/* Силуэт по типу бойца: щит, лук, маг, тяжёлый, клинок. */
+export function roleOf(u: Unit) {
+  const acts = (u.acts || []).map(id => A[id]).filter(Boolean);
+  if (acts.some(a => a.magic && ['attack', 'curse2'].includes(a.kind))) return 'mage';
+  if (sz(u) > 1 || u.tpl === 'dummyFat') return 'heavy';
+  if (acts.some(a => a.kind === 'attack' && a.ranged && !a.magic) && !(u.shield > 0)) return 'bow';
+  return 'blade';
+}
 export function renderTokens() {
   if (!S || S.sim) return;
   const box = $('#toks'),
@@ -498,9 +576,9 @@ export function renderTokens() {
       d = el(
         'div',
         'tok3',
-        '<div class="gr"></div><div class="fig c">' +
+        '<div class="sh"></div><div class="gr"></div><div class="fig c">' +
           FIG_SVG +
-          '</div><div class="drip"></div><div class="stars">✦ ✦</div><div class="bar"></div><div class="od"></div><div class="fxs"></div><div class="fxn"></div>',
+          '</div><div class="drip"></div><div class="stars">✦ ✦</div><div class="bar"></div><div class="pn"></div><div class="od"></div><div class="fxs"></div><div class="fxn"></div>',
       );
       d.dataset.id = u.id;
       box.appendChild(d);
@@ -521,6 +599,7 @@ export function renderTokens() {
         [!u.down && !S.over && !S.editor && u.side === S.phase && u.od === 0, 'spent'],
         [!u.down && !S.over && !S.editor && !S.busy && u.side === S.phase && u.od > 0 && isHuman(u.side), 'ready'],
         [u.torch, 'torch'],
+        [true, 'r-' + roleOf(u)],
         [u.shield > 0, 'shield'],
         [darkPen(u) > 0 && !(vis && heat), 'dark'],
         ...(!vis
@@ -554,6 +633,9 @@ export function renderTokens() {
       (d.classList.contains('hov') ? ' hov' : '');
     if (d.className.replace(' hit', '').replace(' peek', '').replace(' hov', '') !== cls) d.className = cls + keep;
     const p = tokPos(u);
+    const pk = u.x + ',' + u.y;
+    if (d._pk && d._pk !== pk && !S.editor) sfx('step');
+    d._pk = pk;
     d.style.left = p.x.toFixed(1) + 'px';
     d.style.top = p.y.toFixed(1) + 'px';
     d.style.zIndex = u.down ? 1 : 10 + Math.round(p.y);
@@ -576,8 +658,47 @@ export function renderTokens() {
       bar.className = 'bar segs' + (onEdge(u) ? ' edge' : '');
       bar._k = bk;
       bar._p = pn;
+      /* Боль ещё и числом — не только цветом */
+      const pe = d.querySelector('.pn');
+      pe.textContent = u.down || !pn ? '' : `${pn}/${L}`;
+      pe.style.left = ((L * 6) / 2 + 3).toFixed(0) + 'px';
+      /* без Боли шкала не мешает — видна только при наведении и выборе */
+      bar.classList.toggle('zero', !pn);
     }
-    d.querySelector('.od').innerHTML = u.down ? '' : odPipsHTML(u);
+    /* тень от ближайшего света: вытянута в сторону от него */
+    const sh = d.querySelector('.sh');
+    const ls = lightSources().filter(l => l.u !== u);
+    let best = null;
+    for (const l of ls) {
+      const q = l.u ? tokPos(l.u) : hc(l.x, l.y),
+        dd = Math.hypot(q.x - p.x, q.y - p.y);
+      if (!best || dd < best.d) best = { q, d: dd };
+    }
+    if (best && best.d > 1) {
+      const ang = Math.atan2(p.y - best.q.y, p.x - best.q.x),
+        len = Math.max(0.35, Math.min(1, (CELL * 4) / best.d));
+      sh.style.setProperty('--sa', ang.toFixed(3) + 'rad');
+      sh.style.setProperty('--sl', len.toFixed(2));
+      sh.style.opacity = String(Math.min(0.7, 0.25 + (CELL * 2) / best.d).toFixed(2));
+    } else sh.style.opacity = '0';
+    const od = d.querySelector('.od'),
+      oh = u.down ? '' : odPipsHTML(u);
+    if (od._h !== oh + CELL + sz(u)) {
+      od._h = oh + CELL + sz(u);
+      od.innerHTML = oh;
+      /* очки действий — полукругом по переднему краю круга под ногами */
+      const pips = [...od.children] as HTMLElement[],
+        n = pips.length,
+        big = sz(u) > 1 ? 2.1 : 1,
+        rx = CELL * 0.4 * big,
+        ry = CELL * 0.25 * big,
+        step = Math.min(30, 120 / Math.max(1, n - 1)) / big;
+      pips.forEach((b, i) => {
+        const a = ((90 + (i - (n - 1) / 2) * step) * Math.PI) / 180;
+        b.style.left = (Math.cos(a) * rx).toFixed(1) + 'px';
+        b.style.top = (Math.sin(a) * ry).toFixed(1) + 'px';
+      });
+    }
     const fb = d.querySelector('.fxs'),
       html = u.down ? '' : fxChips(u);
     if (fb._h !== html) {
@@ -611,6 +732,7 @@ export function renderTokens() {
     }
     sv.innerHTML = h;
   }
+  syncDrone();
 }
 export function drawLight(t) {
   if (!S || S.sim) return;

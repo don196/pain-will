@@ -41,8 +41,14 @@ import * as anim from './ui/anim';
 import * as zoom from './ui/zoom';
 import * as history from './ui/history';
 import * as rng from './rng';
+import * as sound from './ui/sound';
+import * as phone from './ui/phone';
+import * as expedition from './ui/expedition';
 
 const all: any[] = [
+  sound,
+  phone,
+  expedition,
   actions,
   fighters,
   scenarios,

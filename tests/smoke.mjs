@@ -133,11 +133,44 @@ try {
       });
       ok(hg.lvl === 2 && hg.stairs && hg.up === 2 && hg.cliff && !hg.adj && hg.fall === 2 && hg.prone && hg.above, 'высоты: лестница, уступ, падение, +2 сверху', JSON.stringify(hg));
 
+      // Экспедиция: победа → привал (Боль −2, очнулся) → следующий бой с теми же ранами; кровь на полу; звук не ломает страницу.
+      const ex = await page.evaluate(async () => {
+        P.EXP.rest = { mode: 'A', n: 2 };
+        P.startExpedition(['dummies', 'heights']);
+        const [k, h] = P.S.units.filter(u => u.side === 'pc');
+        k.hp = k.maxHp - 5; k.wounds = { arm: { deg: 1 } }; P.bloodAt(k, 2);
+        h.hp = h.maxHp - 8; h.down = true; h.ko = true;
+        for (const u of P.S.units.filter(u => u.side === 'en')) { u.down = true; u.dead = true; }
+        P.S.over = 'pc'; P.render();
+        const blood = (P.S.blood || []).length;
+        const btn = !!document.querySelector('#bnNext'), kp = P.painOf(k);
+        P.nextStage();
+        const k2 = P.S.units.find(u => u.tpl === 'conrad'), h2 = P.S.units.find(u => u.tpl === 'helga');
+        const r = { scn: P.S.scn, btn, blood, k: kp - P.painOf(k2), w: Object.keys(k2.wounds).length, h: P.painOf(h2), hdown: h2.down, badge: /Экспедиция 2\/2/.test(document.querySelector('#rnd').textContent) };
+        P.stopExpedition();
+        P.setSound(true); P.sfx('hit'); P.sfx('crit'); P.setSound(false);
+        return r;
+      });
+      ok(ex.scn === 'heights' && ex.btn && ex.blood > 0 && ex.k === 2 && ex.w === 1 && ex.h === 4 && !ex.hdown && ex.badge, 'экспедиция: привал, перенос ран и Боли; кровь на полу; звук', JSON.stringify(ex));
+
     }
 
     if (vp.name === 'телефон') {
       const ph = await page.evaluate(() => ({ dock: getComputedStyle(document.querySelector('#dock')).position, tr: document.querySelector('#board').style.transform }));
       ok(ph.dock === 'fixed' && /scale/.test(ph.tr), 'телефон: действия в нижней панели, поле масштабируется', JSON.stringify(ph));
+      // Поворот поля в портрете, сворачиваемая панель, карточка листом.
+      const pr = await page.evaluate(async () => {
+        const r = {};
+        r.rot = P.ROT; r.tall = P.boardH() > P.boardW();
+        document.querySelector('#dockTog').click(); r.min = document.body.classList.contains('dock-min');
+        r.top = [...document.querySelectorAll('#acts .act')].filter(b => getComputedStyle(b).display !== 'none').length;
+        document.querySelector('#dockTog').click(); r.max = !document.body.classList.contains('dock-min');
+        document.querySelector('#btnCardSheet').click(); r.sheet = getComputedStyle(document.querySelector('.side')).position;
+        document.querySelector('#sheetClose').click(); r.closed = !document.body.classList.contains('sheet-open');
+        document.querySelector('#btnRot').click(); r.off = !P.ROT; document.querySelector('#btnRot').click(); r.on = P.ROT;
+        return r;
+      }).catch(e => ({ err: e.message }));
+      ok(pr.rot && pr.tall && pr.min && pr.top <= 3 && pr.max && pr.sheet === 'fixed' && pr.closed && pr.off && pr.on, 'телефон: поворот поля, свёрнутая панель, карточка листом', JSON.stringify(pr));
     }
     // Ход противников под ИИ, герои отвечают первым вариантом.
     await page.evaluate(() => { P.SET.anim = 'fast'; });

@@ -1,4 +1,7 @@
 import { view } from './view';
+import { initPhone } from './ui/phone';
+import { EXP, openExpedition, stopExpedition } from './ui/expedition';
+import { setSound, sfxLog, soundOn } from './ui/sound';
 import { appendLog, drawFloor, drawLight, flash, fxLine, fxText, renderTokens } from './ui/board';
 import { askChoice } from './ui/prompt';
 import { play } from './ui/anim';
@@ -28,6 +31,7 @@ function init(data) {
     .map(([k, v]) => `<option value="${k}">${v.name}</option>`)
     .join('');
   $('#scn').onchange = e => {
+    if (EXP.on) stopExpedition();
     if (!SIMULATING) loadScenario(e.target.value);
   };
   $('#btnRestart').onclick = () => restart();
@@ -36,6 +40,19 @@ function init(data) {
   $('#btnSim').onclick = openSim;
   $('#btnRules').onclick = openRules;
   $('#btnNotes').onclick = openNotes;
+  $('#btnExp').onclick = () => {
+    if (!SIMULATING) openExpedition();
+  };
+  const sb = $('#btnSound');
+  const syncSb = () => {
+    sb.textContent = soundOn() ? 'Звук: вкл' : 'Звук: выкл';
+    sb.setAttribute('aria-pressed', String(soundOn()));
+  };
+  syncSb();
+  sb.onclick = () => {
+    setSound(!soundOn());
+    syncSb();
+  };
   $('#btnData').onclick = () => {
     if (!SIMULATING) openData();
   };
@@ -146,6 +163,7 @@ function init(data) {
     }, 120);
   });
   initZoom();
+  initPhone();
   requestAnimationFrame(loop);
   const lay = data && data.layout && data.layout.units ? data.layout : null;
   if (lay && data.bal === BAL_V) {
@@ -172,7 +190,10 @@ Object.assign(view, {
   fxLine,
   flash,
   hideTip,
-  appendLog,
+  appendLog: e => {
+    appendLog(e);
+    sfxLog(e);
+  },
   askChoice,
   play,
 });

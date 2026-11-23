@@ -10,7 +10,7 @@ import { ev, log, uName } from './log';
 import { koTick, onEdge, painPrep } from './pain';
 import { odMax } from './reactions';
 import { getEff, stat } from './stats';
-import { needsCare, tickWounds } from './wounds';
+import { bloodAt, needsCare, tickWounds } from './wounds';
 import { SET } from '../settings';
 import { GEN, S, alive, byId, selUnit } from '../state';
 import { CANCEL, esc } from '../util';
@@ -70,6 +70,7 @@ export async function beginPhase() {
         `🩸 ${uName(u)}: кровотечение — +1 Боль${add ? `, открытые раны +${add} стак` : ''}, стаков осталось ${u.bleed}`,
         { k: 'bleed', u: u.id, n: 1 },
       );
+      bloodAt(u, 1);
       applyDamage(u, 1, null);
       if (S.over) return;
       if (u.down) continue;

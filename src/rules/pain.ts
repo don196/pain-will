@@ -230,4 +230,14 @@ export function painPrep(u: Unit) {
   u.dead = false;
   u.deathSteps = 0;
   u._pm = true;
+  /* экспедиция: герой пришёл из прошлого боя со своей Болью и состоянием */
+  const c = u._carry;
+  if (c) {
+    u.hp = Math.max(0, u.maxHp - c.pain);
+    if (c.armorPts != null) u.armorPts = c.armorPts;
+    u.ko = !!c.ko;
+    u.dead = !!c.dead;
+    u.deathSteps = c.deathSteps || 0;
+    delete u._carry;
+  }
 }

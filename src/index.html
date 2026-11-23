@@ -31,6 +31,8 @@
         <button id="btnRules" type="button">Правила</button>
         <button id="btnData" type="button">Бойцы и оружие</button>
         <button id="btnNotes" type="button">Как считает</button>
+        <button id="btnExp" type="button">Экспедиция</button>
+        <button id="btnSound" type="button" aria-pressed="false">Звук: выкл</button>
       </nav>
     </details>
   </header>
@@ -57,16 +59,18 @@
         </div>
         <div class="bov" id="bov"></div>
         <div id="banner" class="banner" hidden></div>
-        <div class="bctl" id="bctl"><span class="hist" id="hist"></span><button type="button" id="btnFit" class="icon" aria-label="Вернуть поле целиком" title="Вернуть поле целиком"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button></div>
+        <div class="bctl" id="bctl"><span class="hist" id="hist"></span><button type="button" id="btnRot" class="icon phone-only" aria-label="Повернуть поле" title="Повернуть поле"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3M20 4v4h-4M20 12a8 8 0 0 1-14 5.3M4 20v-4h4"/></svg></button><button type="button" id="btnFit" class="icon" aria-label="Вернуть поле целиком" title="Вернуть поле целиком"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button></div>
       </div>
       <div class="dock" id="dock">
-        <span class="handle" aria-hidden="true"></span>
+        <button type="button" class="handle" id="dockTog" aria-label="Свернуть или развернуть панель действий" aria-expanded="true"></button>
         <div class="dockhd" id="ctx"></div>
         <section id="acts" aria-label="Действия"></section>
       </div>
     </section>
+    <div class="sheetbg" id="sheetBg" aria-hidden="true"></div>
     <aside class="side">
       <div class="stabs" id="stabs">
+        <button type="button" class="sclose" id="sheetClose" aria-label="Закрыть карточку">✕</button>
         <button type="button" data-tab="card">Боец</button>
         <button type="button" data-tab="log">Журнал</button>
         <button type="button" data-tab="scene">Сцена</button>
