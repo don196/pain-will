@@ -39,6 +39,8 @@ jobs:
         run: npm run sim -- --n 300 | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Солдаты 3 на 3 — ровно 100 повторений
         run: npm run sim -- --n 100 --scn soldiers3v3 --seed 20261123 | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Заключённые тюремного блока — 100 боёв на карту
+        run: npm run sim -- --n 100 --scn prison33,prison34 --seed 20261123 | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Пакет для Pages
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v5
