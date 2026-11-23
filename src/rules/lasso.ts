@@ -25,7 +25,7 @@ export const lassoPart = (u: Unit) => {
   return e ? e.part : null;
 };
 
-export const immobile = (u: Unit) => hasEff(u, 'snare') || hasEff(u, 'lasso') || false;
+export const immobile = (u: Unit) => hasEff(u, 'snare') || hasEff(u, 'lasso') || u.grabbedBy != null;
 
 export function lassoTarget(u: Unit) {
   if (!u.lassoT) return null;

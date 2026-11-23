@@ -57,7 +57,7 @@ export async function endTurnUI() {
   await onEndTurn();
 }
 export const CELL_KINDS = ['door', 'objectStrike', 'objectPush'];
-export const IMMEDIATE = ['self', 'circle', 'escape', 'aura', 'breakbind', 'unbind', 'standup', 'prep', 'unlasso'];
+export const IMMEDIATE = ['self', 'circle', 'prisonCircle', 'prisonRelease', 'charge', 'escape', 'aura', 'breakbind', 'unbind', 'standup', 'prep', 'unlasso'];
 export function onAction(id) {
   const u = selUnit();
   if (!canControl(u)) return;
@@ -132,7 +132,7 @@ export function onCellClick(e) {
       id = cur;
     if (a.kind === 'move') {
       const dist = bfs(u, {
-        max: speedOf(u) * Math.min(2, u.od),
+        max: a.stepback ? 1 : speedOf(u) * Math.min(2, u.od),
       });
       const v = dist.get(key(p.x, p.y));
       if (v && v.d > 0) {
@@ -143,7 +143,7 @@ export function onCellClick(e) {
           render();
           return;
         }
-        run(() => performMove(u, p.x, p.y));
+        run(() => performMove(u, p.x, p.y, id));
         return;
       }
     } else if (a.kind === 'pair') {
@@ -247,16 +247,16 @@ export function showTip(e, p) {
     if (a.kind === 'move') {
       const sp = speedOf(u),
         dist = bfs(u, {
-          max: sp * Math.min(2, u.od),
+          max: a.stepback ? 1 : sp * Math.min(2, u.od),
         }),
         v = dist.get(key(p.x, p.y));
       if (!v || !v.d) {
         hideTip();
         return;
       }
-      const zp = zocPreview(u, pathTo(dist, p.x, p.y));
+      const zp = a.stepback ? [] : zocPreview(u, pathTo(dist, p.x, p.y));
       const hv = hAt(p.x, p.y);
-      html = `Путь ${v.d} гекс. · <b>${v.d <= sp ? 1 : 2} ОД</b>${hv ? ' · высота ' + hv : ''}${zp.map(z => `<div class="zw">Выход из зоны: ${esc(z.e.name)} ударит (${esc(A[z.id].name)}), попадёт в ${pct(z.p)}</div>`).join('')}`;
+      html = `${a.stepback ? 'Отскок' : 'Путь'} ${v.d} гекс. · <b>${a.stepback || v.d <= sp ? 1 : 2} ОД</b>${hv ? ' · высота ' + hv : ''}${zp.map(z => `<div class="zw">Выход из зоны: ${esc(z.e.name)} ударит (${esc(A[z.id].name)}), попадёт в ${pct(z.p)}</div>`).join('')}`;
     } else if (a.kind === 'trap') {
       if (!validTrap(u, p)) {
         hideTip();

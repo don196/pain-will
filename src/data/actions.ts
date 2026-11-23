@@ -494,3 +494,16 @@ Object.assign(A, {
     hint: 'Выстрел на следующем ходу: +5; союзники не перекрывают линию, стены перекрывают',
   },
 });
+
+/* Заключённые тюремного блока. Старые HP-приёмы сюда не переносим. */
+Object.assign(A, {
+  prisonKnifeAttack: { name: 'Удар ножом', cost: 1, kind: 'attack', pcls: 'light', ptyp: 'cut', w: 'prisonKnife', atk: 'main', dmg: 'main', reach: 1 },
+  prisonBackstep: { name: 'Отскок', cost: 1, kind: 'move', once: true, stepback: true, hint: '1 ОД: 1 гекс без атак из зоны контроля; до или после удара, один раз за собственный ход' },
+  prisonChainAttack: { name: 'Удар цепью', cost: 1, kind: 'attack', pcls: 'med', ptyp: 'blunt', noParry: true, w: 'prisonChain', atk: 'main', dmg: 'main', reach: 1 },
+  prisonChainCircle: { name: 'Круговой удар цепью', cost: 2, kind: 'prisonCircle', pcls: 'med', ptyp: 'blunt', noParry: true, w: 'prisonChain', metrics: 'prisonChainCircle', hint: 'Все 6 соседних гексов: враги и союзники; 2 ОД; отдельный бросок по каждому' },
+  prisonChainReady: { name: 'Раскрутка цепи', cost: 1, kind: 'charge', chargeType: 'prisonChain', metrics: 'prisonChainReady', hint: '1 ОД: перехват при входе в соседний гекс за 1 реакцию, или выброс цепи на следующий ход за 1 ОД. Пока раскрутка активна, нет активной защиты от дальних атак' },
+  prisonChainThrow: { name: 'Дальний выброс цепи', cost: 1, kind: 'attack', pcls: 'med', ptyp: 'blunt', noParry: true, w: 'prisonChain', atk: 'main', dmg: 'main', reach: 2, onlyDistance: 2, requiresCharge: 'prisonChain', metrics: 'prisonChainThrow', hint: 'На следующем собственном ходу, если перехват не сработал, удар по одной цели ровно в 2 гексах' },
+  prisonJailerClub: { name: 'Удар дубинкой', cost: 1, kind: 'attack', pcls: 'heavy', ptyp: 'blunt', w: 'prisonClub', atk: 'main', dmg: 'main', reach: 1 },
+  prisonJailerGrab: { name: 'Захват вооружённой руки', cost: 2, kind: 'prisonGrab', reach: 1, metrics: 'prisonJailerGrab', hint: 'Встречная Сила; без Боли. Обездвиживание, −3 к уклонению, захваченной рукой не действовать. Другая рука свободна' },
+  prisonJailerRelease: { name: 'Отпустить руку', cost: 0, kind: 'prisonRelease', hint: 'Добровольно отпустить захваченную руку, 0 ОД' },
+});

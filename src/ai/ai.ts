@@ -81,6 +81,7 @@ export async function aiStep(u: Unit) {
   }
   if (await aiRescueMove(u, foes)) return true;
   if (u.prone && okAct(u, 'standup')) return await perform(u, 'standup');
+  if (u.grabbedBy != null && okAct(u, 'escape')) return await perform(u, 'escape');
   if (
     hasEff(u, 'lasso') &&
     !hasEff(u, 'snare') &&
@@ -762,5 +763,87 @@ Object.assign(AI, {
     )
       return await perform(u, 'aimReady');
     return AI.pShoot(u, foes);
+  },
+});
+
+/* Тюремный блок 4.5.6: тактические роли из карточек на Боли (22.11).
+   Бегство по 30% HP и фиксированные стадии расстройств здесь намеренно НЕ включены. */
+Object.assign(AI, {
+  async pPrisonKnife(u: Unit, foes: Unit[]) {
+    if (u._ai.prisonStruck && okAct(u,'prisonBackstep')) {
+      const dist = bfs(u,{max:1});
+      let best = null;
+      for (const [k,v] of dist) {
+        if (v.d !== 1) continue;
+        const [x,y] = unkey(k);
+        const here = Math.min(...foes.map(f=>cheb(u,f)));
+        const away = Math.min(...foes.map(f=>cheb({x,y},f)));
+        if (away > here && (!best || away > best.away)) best = {x,y,away};
+      }
+      if (best) return await performMove(u,best.x,best.y,'prisonBackstep');
+    }
+    if (okAct(u,'prisonKnifeAttack')) {
+      const ts = targetsFor(u,'prisonKnifeAttack');
+      if (ts.length) {
+        const t = ts.slice().sort((a,b)=>
+          (Object.keys(b.wounds||{}).length ? 2 : 0) + (b.prone ? 1 : 0) + (b.maxHp-b.hp)/b.maxHp -
+          ((Object.keys(a.wounds||{}).length ? 2 : 0) + (a.prone ? 1 : 0) + (a.maxHp-a.hp)/a.maxHp))[0];
+        u._ai.prisonStruck = true;
+        return await perform(u,'prisonKnifeAttack',t);
+      }
+    }
+    if (okAct(u,'move') && !u._ai.prisonMoved) {
+      u._ai.prisonMoved = true;
+      const t=nearestFoe(u,foes,'prisonKnifeAttack');
+      if (t) return await aiApproach(u,'prisonKnifeAttack',t);
+    }
+    return false;
+  },
+  async pPrisonChain(u: Unit, foes: Unit[]) {
+    if (u.charge?.kind === 'prisonChain') {
+      if (u.charge.readyRound === S.round && okAct(u,'prisonChainThrow')) {
+        const ts=targetsFor(u,'prisonChainThrow');
+        if (ts.length) return await perform(u,'prisonChainThrow',enemyPick(u,ts));
+      }
+      if (u.charge.readyRound > S.round) return false;
+    }
+    const adj=foes.filter(t=>near1(u,t));
+    if (adj.length >= 2 && okAct(u,'prisonChainCircle')) return await perform(u,'prisonChainCircle');
+    if (adj.length && okAct(u,'prisonChainAttack')) {
+      const ts=targetsFor(u,'prisonChainAttack');
+      if (ts.length) return await perform(u,'prisonChainAttack',enemyPick(u,ts));
+    }
+    if (!adj.length && !u.charge && okAct(u,'prisonChainReady') && foes.some(t=>cheb(u,t)===2))
+      return await perform(u,'prisonChainReady');
+    if (okAct(u,'move') && !u._ai.prisonMoved) {
+      u._ai.prisonMoved = true;
+      const t=nearestFoe(u,foes,'prisonChainAttack');
+      if (t) return await aiApproach(u,'prisonChainAttack',t);
+    }
+    return false;
+  },
+  async pPrisonJailer(u: Unit, foes: Unit[]) {
+    if (u.hold?.kind === 'prisonJailer') {
+      if (okAct(u,'prisonJailerClub')) {
+        const t=byId(u.hold.t);
+        if (t && !t.down && canTarget(u,A.prisonJailerClub,t))
+          return await perform(u,'prisonJailerClub',t);
+      }
+      return false;
+    }
+    if (okAct(u,'prisonJailerGrab')) {
+      const ts=targetsFor(u,'prisonJailerGrab').filter(t=>t.grabbedBy==null);
+      if (ts.length) return await perform(u,'prisonJailerGrab',enemyPick(u,ts));
+    }
+    if (okAct(u,'prisonJailerClub')) {
+      const ts=targetsFor(u,'prisonJailerClub');
+      if (ts.length) return await perform(u,'prisonJailerClub',enemyPick(u,ts));
+    }
+    if (okAct(u,'move') && !u._ai.prisonMoved) {
+      u._ai.prisonMoved=true;
+      const t=nearestFoe(u,foes,'prisonJailerClub');
+      if (t) return await aiApproach(u,'prisonJailerClub',t);
+    }
+    return false;
   },
 });
