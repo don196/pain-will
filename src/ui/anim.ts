@@ -2,6 +2,7 @@ import { SET } from '../settings';
 import { S } from '../state';
 import { CELL, tokPos } from './board';
 import { $, REDUCED, el } from '../util';
+import { sfx } from './sound';
 
 /* Проигрыватель событий боя. Правила сообщают, что случилось («удар», «на пороге»), и ждут,
    пока экран это покажет. В симуляции и тестах без браузера правила этот слой не трогают. */
@@ -28,6 +29,11 @@ function strikeFx(e) {
   const A = tokEl(e.att),
     D = tokEl(e.def);
   rollBadge(e, REDUCED ? 0 : 380 * f);
+  sfx(e.ranged ? 'shot' : 'swing');
+  setTimeout(
+    () => sfx(e.parried ? 'parry' : !e.hit ? 'miss' : e.deg && e.deg.t === 3 ? 'crit' : 'hit'),
+    (REDUCED ? 60 : 150) * f,
+  );
   if (REDUCED || !A || !D) return wait(REDUCED ? 250 : 0);
   const pa = tokPos(e.att),
     pd = tokPos(e.def),
@@ -42,6 +48,7 @@ function strikeFx(e) {
     restartClass(fig, 'lunge');
   }
   if (e.hit && !e.ranged) setTimeout(() => slashAt(e.def, dx < 0), 140 * f);
+  if (e.deg && e.deg.t === 3) setTimeout(() => restartClass($('#wrap'), 'shake'), 160 * f);
   return wait(430 * f);
 }
 

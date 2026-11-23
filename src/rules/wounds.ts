@@ -19,7 +19,18 @@ export function woundPenTxt(ar, deg) {
 
 /* Удар: фактический урон 8+ — рана (с ней приходит стартовый стак), 5–7 или клинки Филина — один стак кровотечения. */
 
+/* След крови на поле — только картинка, в симуляции не копится. */
+export function bloodAt(u: Unit, n = 1) {
+  if (!S || S.sim || !u) return;
+  S.blood = S.blood || [];
+  const b = S.blood.find(o => o.x === u.x && o.y === u.y);
+  if (b) b.n = Math.min(6, b.n + n);
+  else S.blood.push({ x: u.x, y: u.y, n });
+  S.lv = (S.lv || 0) + 1;
+  view.drawFloor();
+}
 export function addWound(u: Unit, ar, opt: Opts = {}) {
+  if (!opt.closed) bloodAt(u, 2);
   const w = u.wounds[ar];
   if (w && w.deg >= 4 && !vital(ar)) return false;
   const deg = !w ? 1 : w.open ? Math.min(4, w.deg + 1) : w.deg;

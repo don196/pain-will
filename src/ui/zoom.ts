@@ -1,5 +1,6 @@
 import { S, selUnit } from '../state';
 import { $ } from '../util';
+import { cellsOf } from '../rules/geometry';
 import { boardH, boardW, tokPos } from './board';
 
 /* Масштаб и сдвиг поля. Телефон: двумя пальцами — масштаб, одним — сдвиг. Компьютер: колесо — масштаб
@@ -9,6 +10,20 @@ let dragged = false;
 export const isPhone = () => typeof window !== 'undefined' && window.matchMedia('(max-width:700px)').matches;
 
 /* Было ли последнее нажатие сдвигом поля (тогда это не нажатие на клетку). */
+/* Долгое нажатие на фишку (палец) — открыть карточку бойца. */
+let lpT = null;
+export const LP = { cb: null as null | ((id) => void) };
+function unitIdAt(t: HTMLElement) {
+  const tok = t.closest('#toks [data-id]') as HTMLElement;
+  if (tok) return +tok.dataset.id;
+  const c = t.closest('#hl [data-x]') as HTMLElement;
+  if (!c || !S) return null;
+  const x = +c.dataset.x,
+    y = +c.dataset.y;
+  const u =
+    S.units.find(o => o.x === x && o.y === y) || S.units.find(o => cellsOf(o).some(q => q.x === x && q.y === y));
+  return u ? u.id : null;
+}
 export function consumeDrag() {
   const d = dragged;
   dragged = false;
@@ -94,6 +109,20 @@ export function initZoom() {
     pts.set(e.pointerId, local(e));
     if (pts.size === 1) dragged = false;
     snap();
+    clearTimeout(lpT);
+    if (e.pointerType !== 'mouse' && pts.size === 1 && LP.cb) {
+      const id = unitIdAt(e.target as HTMLElement);
+      if (id != null)
+        lpT = setTimeout(() => {
+          if (dragged || pts.size !== 1) return;
+          dragged = true; /* следующий щелчок не засчитывается */
+          if (navigator.vibrate) navigator.vibrate(12);
+          LP.cb(id);
+        }, 520);
+    }
+  });
+  w.addEventListener('contextmenu', e => {
+    if (isPhone()) e.preventDefault();
   });
   w.addEventListener('pointermove', e => {
     if (!pts.has(e.pointerId)) return;
@@ -104,6 +133,7 @@ export function initZoom() {
       const dx = a[0].x - st.c.x,
         dy = a[0].y - st.c.y;
       if (!dragged && Math.hypot(dx, dy) < (e.pointerType === 'mouse' ? 6 : 10)) return;
+      clearTimeout(lpT);
       dragged = true;
       w.classList.add('panning');
       Z.x = st.x + dx;
@@ -124,6 +154,7 @@ export function initZoom() {
     apply();
   });
   const up = e => {
+    clearTimeout(lpT);
     pts.delete(e.pointerId);
     w.classList.remove('panning');
     if (pts.size) snap();

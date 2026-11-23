@@ -1,3 +1,5 @@
+import { sfx } from './sound';
+import { view } from '../view';
 import type { Unit } from '../types';
 import { aiTurn } from '../ai/ai';
 import { A, ATTACK_KINDS } from '../data/actions';
@@ -493,9 +495,13 @@ export function renderHint() {
     long = actLong(u, id, a);
   box.innerHTML = `<b>${esc(a.name)}</b><span class="cost">${cost} ОД</span>${long}${a.pending ? ' <span class="pend">требует утверждения</span>' : ''}${!st.ok && st.why ? ` <span class="why">Сейчас нельзя: ${st.why}.</span>` : ''}`;
 }
+let lastPhase = '';
 export function renderTurn() {
   const human = isHuman(S.phase),
     u = selUnit();
+  const pk = S.round + S.phase;
+  if (lastPhase && pk !== lastPhase && !S.over && !S.editor) sfx('turn');
+  lastPhase = pk;
   const phase = S.over
     ? S.over === 'pc'
       ? 'Победа героев'
@@ -548,7 +554,7 @@ export function renderTurn() {
       ? S.pathNote || 'нажмите на подсвеченную клетку, чтобы пойти, или выберите действие'
       : 'выберите действие';
   $('#rnd').innerHTML =
-    `<span class="cap">Раунд</span><span class="rn">${S.round}</span><span class="ph ${S.over ? 'over' : S.editor ? 'ed' : S.phase}">${phase}</span>`;
+    `<span class="cap">Раунд</span><span class="rn">${S.round}</span><span class="ph ${S.over ? 'over' : S.editor ? 'ed' : S.phase}">${phase}</span>${HOOKS.badge ? HOOKS.badge() : ''}`;
   const IC = {
     undo: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 010 10h-3"/></svg>',
     redo: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 000 10h3"/></svg>',
@@ -566,7 +572,10 @@ export function renderTurn() {
     u && !S.editor
       ? `<span class="who"><span class="gl ${u.side}">${esc(u.glyph)}</span><b>${esc(u.name)}</b></span>${u.down ? '' : `${painSegs(u, 'sm')}<span class="pips" title="Очки действий">${odPipsHTML(u)}</span>`}${u.side === S.phase && !u.down && !S.over && human ? '<span class="dim odn">неистраченные ОД уйдут на защиту</span>' : ''}`
       : '';
-  $('#ctx').innerHTML = `${who}<span class="pr">${prompt}</span>`;
+  $('#ctx').innerHTML =
+    `${who}${u ? '<button type="button" class="cardbtn" id="btnCardSheet">Карточка</button>' : ''}<span class="pr">${prompt}</span>`;
+  const cb = $('#btnCardSheet');
+  if (cb) cb.onclick = () => openCardSheet();
   $('#bov').innerHTML =
     `<button type="button" class="chipbtn" id="tgFc" aria-pressed="${!!UI.fc}" title="Шанс и Боль над целями и карточка прогноза у цели"><i></i>Прогноз</button><button type="button" class="chipbtn" id="tgZoc" aria-pressed="${!!(UI.zoc && SET.zoc)}" ${SET.zoc ? '' : 'disabled'} title="${SET.zoc ? 'Гексы, выход из которых вызовет удар противника' : 'Зона контроля выключена в правилах'}"><i></i>Зоны контроля</button><button type="button" class="chipbtn" id="tgLeg" title="Что означают значки над фигурами">Значки</button>`;
   $('#tgFc').onclick = () => {
@@ -646,14 +655,16 @@ export function renderActs() {
   });
   const GN = ['Шаг', 'Атака', 'Умения', 'Вещи', 'Подготовка'];
   const dflt = defaultMove(u);
-  let n = 0;
+  let n = 0,
+    top = 0;
   const btn = (id, numbered) => {
     const a = A[id],
       st = actState(u, id),
       cost = actCost(u, id);
     const k = numbered && ctrl && st.ok && n < 9 ? ++n : 0;
+    const tp = numbered && top < 3 ? ++top : 0;
     const sel = S.act === id || (!S.act && id === 'move' && dflt);
-    return `<button type="button" class="act${sel ? ' sel' : ''}${!S.act && id === 'move' && dflt ? ' dflt' : ''}${st.ok ? '' : ' off'}${a.pending ? ' pd' : ''}" data-act="${id}"${k ? ` data-key="${k}"` : ''} aria-disabled="${st.ok ? 'false' : 'true'}"><span class="n">${esc(a.name)}</span><span class="m">${!st.ok && ctrl && st.why ? `<em>${st.why}</em>` : actMeta(u, id, a)}</span><span class="c" title="${cost} ОД">${cost ? '<b></b>'.repeat(cost) : '<b class="z"></b>'}</span>${k ? `<kbd>${k}</kbd>` : ''}</button>`;
+    return `<button type="button" class="act${tp ? ' top' : ''}${sel ? ' sel' : ''}${!S.act && id === 'move' && dflt ? ' dflt' : ''}${st.ok ? '' : ' off'}${a.pending ? ' pd' : ''}" data-act="${id}"${k ? ` data-key="${k}"` : ''} aria-disabled="${st.ok ? 'false' : 'true'}"><span class="n">${esc(a.name)}</span><span class="m">${!st.ok && ctrl && st.why ? `<em>${st.why}</em>` : actMeta(u, id, a)}</span><span class="c" title="${cost} ОД">${cost ? '<b></b>'.repeat(cost) : '<b class="z"></b>'}</span>${k ? `<kbd>${k}</kbd>` : ''}</button>`;
   };
   let html = '<div class="agroups">';
   [0, 1, 2, 4, 3].forEach(gi => {
@@ -1095,6 +1106,12 @@ function ribPop(e, btn) {
   };
 }
 
+/* Подключаемые куски от других экранов (экспедиция): строка в шапке хода и продолжение в итогах. */
+export const HOOKS = {
+  badge: null as null | (() => string),
+  bannerHtml: null as null | (() => string),
+  bannerMount: null as null | (() => void),
+};
 /* Конец боя: итоги по бойцам, ключевые броски, переиграть с тем же зерном. */
 export function renderBanner() {
   const b = $('#banner');
@@ -1106,6 +1123,7 @@ export function renderBanner() {
   if (b.dataset.over !== S.over + S.round) {
     b.dataset.over = S.over + S.round;
     b.dataset.closed = '';
+    sfx(S.over === 'pc' ? 'win' : 'lose');
     const T = S.tally || {};
     const Z = { dealt: 0, taken: 0, atks: 0, hits: 0, crits: 0 };
     const row = (u: Unit) => {
@@ -1127,7 +1145,9 @@ export function renderBanner() {
     b.innerHTML = `<div class="bx sum"><h2>${S.over === 'pc' ? 'Победа героев' : S.over === 'en' ? 'Герои пали' : 'Ничья'}</h2><p class="dim">Раунд ${S.round} · зерно боя ${S.seed || '—'}</p>
       <div class="sumw"><table class="sumt"><tr><th>Боец</th><th>Нанёс Боли</th><th>Получил</th><th>Попадания</th><th>Криты</th><th>Раны</th><th>Итог</th></tr>${units.map(row).join('')}</table></div>
       ${km ? `<h3>Ключевые броски</h3><ul class="km">${km}</ul>` : ''}
+      ${HOOKS.bannerHtml ? HOOKS.bannerHtml() : ''}
       <div class="bbtn"><button type="button" class="primary" id="bnSame" title="Те же кубики: если повторить те же действия, бой пойдёт так же">Переиграть с тем же зерном</button><button type="button" id="bnAgain">Новый бой</button><button type="button" id="bnClose">Осмотреть поле</button></div></div>`;
+    if (HOOKS.bannerMount) HOOKS.bannerMount();
     $('#bnSame').onclick = () => restart(true);
     $('#bnAgain').onclick = () => restart();
     $('#bnClose').onclick = () => {
@@ -1147,4 +1167,15 @@ export function render() {
   renderRoster();
   renderRibbon();
   renderBanner();
+}
+
+/* Телефон: карточка бойца — лист поверх поля (кнопка в панели или долгое нажатие на фишку). */
+export function openCardSheet(id?) {
+  if (id != null) S.sel = id;
+  document.body.classList.add('sheet-open');
+  setTab('card');
+  view.render();
+}
+export function closeCardSheet() {
+  document.body.classList.remove('sheet-open');
 }
