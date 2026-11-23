@@ -78,7 +78,7 @@ try {
   console.log('✓ Круговой удар цепью: 2 ОД, независимые удары по своему и чужому');
 
   const intercept=await page.evaluate(async()=>{
-    P.loadScenario('prison33');await new Promise(r=>setTimeout(r,80));P.S.sim=true;P.S.phase='en';
+    P.loadScenario('prison33');await new Promise(r=>setTimeout(r,80));P.S.sim=true;P.S.phase='en';P.S.stat={};
     const ch=P.S.units.find(u=>u.tpl==='prisonChain'),c=P.S.units.find(u=>u.tpl==='conrad');
     ch.x=8;ch.y=7;c.x=10;c.y=7;ch.od=3;
     await P.perform(ch,'prisonChainReady');
