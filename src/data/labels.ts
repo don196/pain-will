@@ -79,6 +79,9 @@ export const WNAME = {
   bastard: 'полуторный меч',
   bow: 'лук',
   dagger: 'кинжал',
+  prisonKnife: 'нож',
+  prisonChain: 'цепь',
+  prisonClub: 'дубина',
 };
 export const PCLS_RU = {
     light: 'лёгкое',
@@ -111,6 +114,9 @@ export const AI_RU = {
   owl: 'Как Филин: сначала свет',
   pcKnight: 'Как Рыцарь',
   pcWitch: 'Как Ведьма',
+  pPrisonKnife: 'Узник: нож и Отскок',
+  pPrisonChain: 'Узник: цепь и Раскрутка',
+  pPrisonJailer: 'Тюремщик: захват руки',
 };
 export const KIND_RU = {
   throw: 'факел',
@@ -133,4 +139,7 @@ export const KIND_RU = {
   torch: 'свет',
   move: 'движение',
   escape: 'побег',
+  prisonCircle: 'круговая атака',
+  prisonGrab: 'силовой захват',
+  prisonRelease: 'отпустить захват',
 };
