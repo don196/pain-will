@@ -72,8 +72,44 @@ try {
       });
       ok(modals.every(m => m.endsWith(':ok')), 'окна и вкладки', modals.join(' · '));
 
+      // 4.0: область перемещения видна сразу, карточка прогноза у цели
+      await page.evaluate(() => P.loadScenario('dummies'));
+      await page.waitForTimeout(300);
+      const ui4 = await page.evaluate(() => {
+        const S = P.S, c = S.units.find(u => u.tpl === 'conrad');
+        S.sel = c.id; S.act = null; P.render();
+        const mv = document.querySelectorAll('#hl .c.mv1').length;
+        const e = S.units.find(u => u.name === 'Болванчик 1');
+        c.x = e.x - 1; c.y = e.y; S.act = 'csword'; S.hover = { x: e.x, y: e.y }; P.render(); P.renderHL();
+        const box = document.querySelector('#fcard'), fc = !box.hidden && /Болванчик 1/.test(box.innerText) && /Усиленный/.test(box.innerText);
+        S.hover = null; S.act = null; P.render();
+        const keys = [...document.querySelectorAll('#acts [data-key]')].map(b => b.dataset.key).join('');
+        return { mv, fc, keys };
+      });
+      ok(ui4.mv > 0 && ui4.fc && /^1/.test(ui4.keys), 'перемещение по умолчанию, карточка прогноза, клавиши действий', JSON.stringify(ui4));
+
+      // 4.0: высоты — лестница, уступ, падение, +2 сверху
+      await page.evaluate(() => P.loadScenario('heights'));
+      await page.waitForTimeout(300);
+      const hg = await page.evaluate(() => {
+        const S = P.S, c = S.units.find(u => u.tpl === 'conrad');
+        c.x = 8; c.y = 2;
+        const d = P.bfs(c, { max: 6 }), up = d.get('10,2');
+        const cliff = P.stepCost(9, 3, 10, 3, 3) === Infinity;
+        const a = S.units.find(u => u.tpl === 'dummy' && P.hAt(u.x, u.y) === 2), p0 = P.painOf(a);
+        P.fall(a, 2);
+        const top = S.units.find(u => u.tpl === 'dummyBow'), h = S.units.find(u => u.tpl === 'helga');
+        return { lvl: P.hAt(11, 2), stairs: P.isStairs(9, 2), up: up && up.d, cliff, adj: P.adjOk({ x: 10, y: 3 }, { x: 9, y: 3 }),
+          fall: P.painOf(a) - p0, prone: a.prone, above: P.atkMods(top, P.A.dxbow, h).some(m => m.l === 'сверху') };
+      });
+      ok(hg.lvl === 2 && hg.stairs && hg.up === 2 && hg.cliff && !hg.adj && hg.fall === 2 && hg.prone && hg.above, 'высоты: лестница, уступ, падение, +2 сверху', JSON.stringify(hg));
+
     }
 
+    if (vp.name === 'телефон') {
+      const ph = await page.evaluate(() => ({ dock: getComputedStyle(document.querySelector('#dock')).position, tr: document.querySelector('#board').style.transform }));
+      ok(ph.dock === 'fixed' && /scale/.test(ph.tr), 'телефон: действия в нижней панели, поле масштабируется', JSON.stringify(ph));
+    }
     // Ход противников под ИИ, герои отвечают первым вариантом.
     await page.evaluate(() => { P.SET.anim = 'fast'; });
     const ai = await page.evaluate(async () => { try { P.S.phase = 'en'; P.S.busy = true; await P.runSideAI('en'); P.S.busy = false; P.render(); return 'ok'; } catch (e) { return 'ERR ' + e.message; } });

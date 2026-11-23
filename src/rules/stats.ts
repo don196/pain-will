@@ -5,6 +5,7 @@ import { STAT_RU } from '../data/labels';
 import { legSpeedPen, mast, mastMg, partSt, v2AtkMods } from './combat';
 import { disForm, isLit, woundedT } from './disorders';
 import { adjOk } from './geometry';
+import { heightMod } from './height';
 import { snareP } from './lasso';
 import { darkPen } from './light';
 import { selfHateHit } from './magic';
@@ -225,6 +226,12 @@ export function atkMods(u: Unit, act: Action, t) {
         v: -P.pen[f - 1],
       });
   }
+  const hm = heightMod(u, t);
+  if (hm)
+    m.push({
+      l: 'сверху',
+      v: hm,
+    });
   v2AtkMods(u, act, m, t);
   return m;
 }

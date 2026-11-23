@@ -1,5 +1,6 @@
 import { T } from '../data/fighters';
 import { footFree, inFoot, torchAt, unitAt } from '../rules/geometry';
+import { H_MAX } from '../rules/height';
 import { log } from '../rules/log';
 import { GEN, S, SIMULATING, UID, byId, mkUnit, nameUnit, setGEN, setUID, snapshotNow } from '../state';
 import { drawFloor, drawLight } from './board';
@@ -20,6 +21,9 @@ export function renderEditor(box) {
     ['lock', 'Дверь: запереть / отпереть'],
     ['bars', 'Решётка'],
     ['barsShoot', 'Решётка: бить сквозь неё / нет'],
+    ['hup', 'Высота +1'],
+    ['hdown', 'Высота −1'],
+    ['stairs', 'Лестница: поставить / убрать'],
   ];
   box.innerHTML = `<div class="panel"><h2 class="ph">Редактор поля</h2>
     <div class="ed-tools">${tools.map(([k, l]) => `<button type="button" data-tool="${k}" class="${S.etool === k ? 'on' : ''}">${l}</button>`).join('')}</div>
@@ -30,7 +34,7 @@ export function renderEditor(box) {
       )
       .join('')}</select>
     <select id="eSide" aria-label="Сторона"><option value="pc" ${S.eside === 'pc' ? 'selected' : ''}>герои</option><option value="en" ${S.eside === 'en' ? 'selected' : ''}>противники</option></select></div>
-    <p class="help">Нажимайте на клетки поля. Крупного бойца (3 гекса) ставьте за его левый верхний гекс. Выбранного бойца можно править в карточке ниже.</p>
+    <p class="help">Нажимайте на клетки поля. Крупного бойца (3 гекса) ставьте за его левый верхний гекс. Высота клетки — от 0 до 6; лестница убирает доплату за подъём на соседний уровень. Выбранного бойца можно править в карточке.</p>
     <div class="row" style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="primary" id="eStart">Начать бой с этой расстановкой</button><button type="button" id="eClear">Очистить поле</button></div></div>`;
   box.querySelectorAll('[data-tool]').forEach(
     b =>
@@ -64,6 +68,8 @@ export function renderEditor(box) {
       S.walls.add(key(S.w - 1, y));
     }
     S.torches = [];
+    S.hgt = {};
+    S.stairs = {};
     S.lv = (S.lv || 0) + 1;
     drawFloor();
     drawLight(performance.now());
@@ -123,6 +129,23 @@ export function editorClick(x, y) {
       break;
     case 'floor':
       clearCell();
+      if (S.hgt) delete S.hgt[k];
+      if (S.stairs) delete S.stairs[k];
+      break;
+    case 'hup':
+    case 'hdown': {
+      if (S.walls.has(k) || S.doors[k] || S.bars[k]) break;
+      S.hgt = S.hgt || {};
+      const v = Math.max(0, Math.min(H_MAX, (S.hgt[k] || 0) + (S.etool === 'hup' ? 1 : -1)));
+      if (v) S.hgt[k] = v;
+      else delete S.hgt[k];
+      break;
+    }
+    case 'stairs':
+      if (S.walls.has(k) || S.doors[k] || S.bars[k]) break;
+      S.stairs = S.stairs || {};
+      if (S.stairs[k]) delete S.stairs[k];
+      else S.stairs[k] = true;
       break;
     case 'torch': {
       const t = torchAt(x, y);

@@ -262,3 +262,13 @@ export const roman = (n: number) => {
 };
 
 export const hpCol = p => (p > 0.5 ? 'var(--good)' : p > 0.25 ? 'var(--warn)' : 'var(--bad)');
+
+/* Шкала Боли делениями: по делению на единицу предела; заполнено столько, сколько Боли. */
+export function painSegs(u: Unit, cls = '') {
+  if (u.down) return `<span class="segs ${cls} down"></span>`;
+  const L = limOf(u),
+    p = Math.min(L, painOf(u));
+  let h = '';
+  for (let i = 0; i < L; i++) h += `<i class="${i < p ? 'on' : ''}"></i>`;
+  return `<span class="segs ${cls}${onEdge(u) ? ' edge' : ''}" title="Боль ${p} из ${L}${onEdge(u) ? ' · на пороге' : ''}">${h}</span>`;
+}

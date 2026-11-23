@@ -36,6 +36,9 @@ import * as ctxmenu from './ui/ctxmenu';
 import * as prompt from './ui/prompt';
 import * as hints from './ui/hints';
 import * as input from './ui/input';
+import * as height from './rules/height';
+import * as anim from './ui/anim';
+import * as zoom from './ui/zoom';
 
 const all: any[] = [
   actions,
@@ -74,6 +77,9 @@ const all: any[] = [
   ctxmenu,
   prompt,
   hints,
+  height,
+  anim,
+  zoom,
 ];
 const P = new Proxy({} as any, {
   get(_t, k) {

@@ -29,3 +29,11 @@ export function sleep(ms) {
   const f = SET.anim === 'fast' ? 0.3 : 1;
   return new Promise<void>((res, rej) => setTimeout(() => (g === GEN ? res() : rej(CANCEL)), ms * f));
 }
+
+/* Показать событие боя и дождаться анимации. В симуляции — ничего. */
+export async function show(e) {
+  if (!S || S.sim) return;
+  const g = GEN;
+  await view.play(e);
+  if (g !== GEN) throw CANCEL;
+}

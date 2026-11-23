@@ -158,6 +158,7 @@ export function enterEdge(u: Unit) {
     `💢 ${uName(u)} — Боль дошла до предела (${limOf(u)}): <b>на пороге</b>. Лежит, 1 ОД в ход: ползти, перевязывать, отдавать приказы. Любая новая Боль — без сознания`,
   );
   view.fxText(u, 'на пороге', 'dmg');
+  if (!S.sim) view.play({ t: 'edge', u });
 }
 export function koTick(u: Unit) {
   tickWounds(u);

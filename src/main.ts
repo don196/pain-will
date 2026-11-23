@@ -1,6 +1,8 @@
 import { view } from './view';
 import { appendLog, drawFloor, drawLight, flash, fxLine, fxText, renderTokens } from './ui/board';
 import { askChoice } from './ui/prompt';
+import { play } from './ui/anim';
+import { initZoom, zoomReset } from './ui/zoom';
 import './debug';
 import { SCN } from './data/scenarios';
 import { isHuman } from './rules/actions';
@@ -12,7 +14,7 @@ import { CTX, closeCtx } from './ui/ctxmenu';
 import { BAL_V, OLD_DATA, loadData, openData } from './ui/data-editor';
 import { toggleEditor } from './ui/editor';
 import { loadScenario, restart, startGame } from './ui/game';
-import { hideTip, onCellClick, onCellHover } from './ui/input';
+import { hideTip, notePointer, onCellClick, onCellHover } from './ui/input';
 import { closeModal, openNotes, openRules } from './ui/modals';
 import { initUI2, render } from './ui/panels';
 import { openOdds, openSim } from './ui/sim';
@@ -40,6 +42,11 @@ function init(data) {
     S.log = [];
   };
   initUI2();
+  document.querySelectorAll('#tmenu nav button').forEach(b =>
+    b.addEventListener('click', () => {
+      ($('#tmenu') as HTMLDetailsElement).open = false;
+    }),
+  );
   $('#modal').onclick = e => {
     if (e.target.id === 'modal' && !SIMULATING) closeModal();
   };
@@ -72,6 +79,11 @@ function init(data) {
         closeModal();
         return;
       }
+      if (S.pendT != null) {
+        S.pendT = null;
+        renderHL();
+        return;
+      }
       if (S.act) {
         S.act = null;
         hideTip();
@@ -97,12 +109,15 @@ function init(data) {
       return;
     }
     if (/^[1-9]$/.test(e.key)) {
-      const b = $('#acts').querySelectorAll('[data-act]')[+e.key - 1];
+      const b = $('#acts').querySelector(`[data-key="${e.key}"]`);
       if (b) b.click();
     }
   });
+  document.addEventListener('pointerdown', notePointer, true);
   document.addEventListener('pointerdown', e => {
     const el = e.target as HTMLElement;
+    const tm = $('#tmenu');
+    if (tm && tm.open && !el.closest('#tmenu')) tm.open = false;
     if (CTX && !el.closest('#ctxm') && !el.closest('#board')) closeCtx();
   });
   window.addEventListener(
@@ -116,9 +131,13 @@ function init(data) {
   window.addEventListener('resize', () => {
     clearTimeout(rt);
     rt = setTimeout(() => {
-      if (S) layoutBoard();
+      if (S) {
+        layoutBoard();
+        zoomReset();
+      }
     }, 120);
   });
+  initZoom();
   requestAnimationFrame(loop);
   const lay = data && data.layout && data.layout.units ? data.layout : null;
   if (lay && data.bal === BAL_V) {
@@ -147,6 +166,7 @@ Object.assign(view, {
   hideTip,
   appendLog,
   askChoice,
+  play,
 });
 
 init({});

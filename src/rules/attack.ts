@@ -1,12 +1,13 @@
 import type { Action, Opts, Unit } from '../types';
 import { DIS, DISP, DIS_ICON } from '../data/disorders';
 import { canTarget } from './actions';
-import { addSt, cauterize, interrupt, v2Counter, v2Defend, v2Extra, v2OnHit } from './combat';
+import { addSt, cauterize, fall, interrupt, v2Counter, v2Defend, v2Extra, v2OnHit } from './combat';
+import { hAt, hasHeights } from './height';
 import { applyDamage } from './damage';
 import { critWill, disForm, disOf, madSwap, oddRoll, sadFail } from './disorders';
 import { isWall, near1, unitAt } from './geometry';
 import { lassoSnap } from './lasso';
-import { ev, log, sleep, uName } from './log';
+import { ev, log, show, sleep, uName } from './log';
 import { backlash, selfHateHit } from './magic';
 import { painAfterTxt, painInfo, painTxt, painWear, painWound } from './pain';
 import { ap3Degree, canActiveDefend, missThr, resist, spendReact, tryCover } from './reactions';
@@ -55,6 +56,17 @@ export async function resolveAttack(att: Unit, act: Action, target: Unit, opt: O
   const th = missThr(att, act, def),
     cf = act.magic && selfHateHit(att) && r === 1;
   if (cf || (th.v && r <= th.v)) {
+    await show({
+      t: 'strike',
+      att,
+      def,
+      act,
+      total,
+      vs: pas,
+      deg: { t: 0, c: 'fail' },
+      hit: false,
+      ranged: !!(act.ranged || act.magic),
+    });
     log(
       `<div class="lh">${uName(att)} → ${uName(def)} · ${act.name}${opt.free ? ' <span class="dim">вне очереди</span>' : ''}</div><div class="lr">натуральные d20 <b>${r}</b>${th.v ? ` · порог промаха <b>${th.v}</b> (${th.src})` : ''}</div><div class="lo"><span class="chip fail">${cf ? 'критический провал' : 'промах'}</span></div>`,
       'atk',
@@ -178,6 +190,18 @@ export async function resolveAttack(att: Unit, act: Action, target: Unit, opt: O
     if (hit) x.hits++;
     x.pain += dmg;
   }
+  await show({
+    t: 'strike',
+    att,
+    def,
+    act,
+    total,
+    vs: defVal,
+    deg,
+    hit,
+    parried: !!(v2def && v2def.ok),
+    ranged: !!(act.ranged || act.magic),
+  });
   log(html, 'atk');
   view.fxLine(att, def, act.fx || (act.ranged ? 'bolt' : 'melee'));
   if (!hit) view.fxText(def, adUsed ? 'отбил' : 'мимо', 'miss');
@@ -200,7 +224,7 @@ export async function resolveAttack(att: Unit, act: Action, target: Unit, opt: O
     att._striking = false;
     if (act.metrics === 'bucklerTap' && !def.down) {
       def.effects = def.effects.filter(e => e.type !== 'bucklerOpen');
-      def.effects.push({type:'bucklerOpen', until:def.id, end:1e9});
+      def.effects.push({ type: 'bucklerOpen', until: def.id, end: 1e9 });
       ev(`🛡 ${uName(def)}: −3 к следующему блоку или парированию до начала собственного хода`);
     }
     if (!def.down) {
@@ -278,6 +302,12 @@ export function knockPlan(att: Unit, def: Unit) {
       collide: true,
       what: 'стену',
     };
+  const dh = hasHeights() ? hAt(nx, ny) - hAt(def.x, def.y) : 0;
+  if (dh >= 1)
+    return {
+      collide: true,
+      what: 'уступ',
+    };
   const o = unitAt(nx, ny);
   if (o)
     return {
@@ -291,6 +321,7 @@ export function knockPlan(att: Unit, def: Unit) {
       x: nx,
       y: ny,
     },
+    fall: dh < 0 ? -dh : 0,
   };
 }
 export function applyKnock(def: Unit, kb) {
@@ -304,6 +335,10 @@ export function applyKnock(def: Unit, kb) {
     ev(`Отбрасывание: ${uName(def)} сдвигается на 1 клетку`);
     view.renderTokens();
     interrupt(def, 'отброшен');
+    if (kb.fall) {
+      fall(def, kb.fall);
+      return;
+    }
     addSt(def, 'unst', 1, 'отбрасывание');
     lassoSnap(def);
     return;

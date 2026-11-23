@@ -3,6 +3,7 @@ import { log } from '../rules/log';
 import { initCombat, phaseLoop } from '../rules/turns';
 import { GEN, S, SIMULATING, buildState, parseScenario, setGEN, setS } from '../state';
 import { layoutBoard } from './board';
+import { zoomReset } from './zoom';
 import { hideTip } from './input';
 import { render } from './panels';
 import { closePrompt } from './prompt';
@@ -26,6 +27,7 @@ export function startGame(snap) {
   const first = S.units.find(u => u.side === 'pc');
   S.sel = first ? first.id : null;
   render();
+  zoomReset();
   S.busy = true;
   phaseLoop().catch(e => {
     if (e !== CANCEL) console.error(e);

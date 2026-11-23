@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Полигон подземелья 3.0</title>
+<title>Полигон подземелья · Боль</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Martian+Mono:wght@400;600&family=Oranienbaum&family=Sofia+Sans:wght@400;500;600;700&family=Sofia+Sans+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
@@ -15,29 +15,32 @@
 <div class="app">
   <header class="top">
     <div class="brand">
-      <h1>Полигон подземелья<span class="ver">3.0</span></h1>
-      <span class="sub">проверка боевых правил</span>
+      <h1>Полигон подземелья<span class="ver">Боль</span></h1>
     </div>
     <div class="scene">
       <label for="scn">Сцена</label>
       <select id="scn"></select>
       <button id="btnRestart" type="button" title="Начать сцену заново">Сначала</button>
     </div>
-    <nav class="tools" aria-label="Инструменты">
-      <button id="btnEditor" type="button">Редактор</button>
-      <button id="btnOdds" type="button">Шансы</button>
-      <button id="btnSim" type="button">Симуляция</button>
-      <button id="btnRules" type="button">Правила</button>
-      <button id="btnData" type="button">Бойцы и оружие</button>
-      <button id="btnNotes" type="button">Как считает</button>
-    </nav>
+    <details class="tmenu" id="tmenu">
+      <summary>Инструменты</summary>
+      <nav class="tools" aria-label="Инструменты">
+        <button id="btnEditor" type="button">Редактор поля</button>
+        <button id="btnOdds" type="button">Шансы</button>
+        <button id="btnSim" type="button">Симуляция</button>
+        <button id="btnRules" type="button">Правила</button>
+        <button id="btnData" type="button">Бойцы и оружие</button>
+        <button id="btnNotes" type="button">Как считает</button>
+      </nav>
+    </details>
   </header>
+  <section class="turnbar" aria-label="Ход боя">
+    <div class="rnd" id="rnd"></div>
+    <div id="roster"></div>
+    <div class="endwrap" id="endwrap"></div>
+  </section>
   <main class="layout">
-    <aside class="rail">
-      <div id="roster"></div>
-    </aside>
     <section class="center">
-      <div class="ctx" id="ctx"></div>
       <div class="board-wrap" id="wrap">
         <div id="board">
           <canvas id="floor"></canvas>
@@ -49,24 +52,34 @@
           <div id="fx"></div>
           <div id="banner" class="banner" hidden></div>
         </div>
+        <div class="bov" id="bov"></div>
+        <div class="bctl" id="bctl"><button type="button" id="btnFit" class="icon" aria-label="Вернуть поле целиком" title="Вернуть поле целиком"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button></div>
       </div>
-      <div class="dock">
+      <div class="dock" id="dock">
+        <span class="handle" aria-hidden="true"></span>
+        <div class="dockhd" id="ctx"></div>
         <section id="acts" aria-label="Действия"></section>
       </div>
     </section>
     <aside class="side">
-      <section class="sheet" id="card"></section>
-      <details class="scene-card" id="sceneCard"><summary>О сцене</summary><div id="sceneInfo"></div></details>
-      <section class="logbox">
-        <div class="loghead"><h2>Журнал</h2>
+      <div class="stabs" id="stabs">
+        <button type="button" data-tab="card">Боец</button>
+        <button type="button" data-tab="log">Журнал</button>
+        <button type="button" data-tab="scene">Сцена</button>
+      </div>
+      <section class="pane sheet" id="card" data-pane="card"></section>
+      <section class="pane logbox" data-pane="log">
+        <div class="loghead">
           <div class="logf" id="logf"><button type="button" data-f="all">Всё</button><button type="button" data-f="atk">Броски</button><button type="button" data-f="ev">События</button><button type="button" data-f="mv">Ходы</button><button id="btnClearLog" type="button" title="Очистить журнал" aria-label="Очистить журнал">✕</button></div></div>
         <div id="log" aria-live="polite"></div>
       </section>
+      <section class="pane scenepane" data-pane="scene"><div id="sceneInfo"></div></section>
     </aside>
   </main>
 </div>
 <div id="ctxm" hidden></div>
 <div id="tip" class="tip" hidden></div>
+<div id="fcard" hidden></div>
 <div id="modal" class="overlay" hidden><div class="mbox" role="dialog" aria-modal="true" id="mbox"></div></div>
 <div id="prompt" class="overlay" hidden style="z-index:50"><div class="mbox sm" role="dialog" aria-modal="true" id="pbox"></div></div>
 

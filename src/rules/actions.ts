@@ -106,7 +106,8 @@ export function okAct(u: Unit, id, raw?) {
   if (a.lasso && lassoTarget(u)) return false;
   if (a.kind === 'prep' && u.prep) return false;
   if (a.kind === 'charge' && u.charge) return false;
-  if (a.requiresCharge && (!u.charge || u.charge.kind !== a.requiresCharge || S.round !== u.charge.readyRound)) return false;
+  if (a.requiresCharge && (!u.charge || u.charge.kind !== a.requiresCharge || S.round !== u.charge.readyRound))
+    return false;
   if (a.requiresShield && !u.shield) return false;
   if (['move'].includes(a.kind) && hasEff(u, 'lasso')) return false;
   if (ATTACK_KINDS.includes(a.kind) && !a.magic && !a.lasso && (partSt(u, 'armR') >= 3 || lassoPart(u) === 'armR'))
@@ -180,7 +181,7 @@ export function canTarget0(u: Unit, act: Action, t, from, friendly?) {
     if (act.fireSrc && hasEff(u, 'magsight') && !(d <= act.range && los(from, t, u).ok))
       return fireSources().some(s => hd(s.x, s.y, t.x, t.y) <= 3 && fireLine(s, t) && fireLine(s, from));
     if (d > act.range) return false;
-    return los(from, t, u, {ignoreFriendly: !!act.ignoreFriendlyLos}).ok;
+    return los(from, t, u, { ignoreFriendly: !!act.ignoreFriendlyLos }).ok;
   }
   const reach = act.reach || 1;
   if (d > reach) return false;
@@ -586,7 +587,7 @@ export async function walk(u: Unit, path, opt: Opts = {}) {
     u.x = x;
     u.y = y;
     view.renderTokens();
-    await sleep(85);
+    await sleep(150);
     if (trapCheck(u)) break;
     const wasProne = u.prone;
     await v2PrepCheck(u);

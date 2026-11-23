@@ -4,7 +4,8 @@ import { T, tplOf } from '../data/fighters';
 import { AREA_RU, DIR_RU, EFF_RU, ST_ICON, ST_RU, WDEG_RU } from '../data/labels';
 import { canTarget, contestLog, isHuman, trapCheck, weaponsOf, zocWeapon } from './actions';
 import { knockPlan, resolveAttack } from './attack';
-import { applyDamage } from './damage';
+import { applyDamage, downUnit } from './damage';
+import { fallPain } from './height';
 import { inB, isFloor, near1, unitAt } from './geometry';
 import { LASSO_R, SNARE_PART, immobile, lassoPart, lassoSnap, lassoTarget, releaseLasso } from './lasso';
 import { hiddenFrom } from './light';
@@ -81,6 +82,24 @@ export function setProne(u: Unit, why?) {
   ev(`⤵ ${uName(u)} сбит с ног${why ? ' — ' + why : ''}: −5 к обычным атакам и активной защите, встать — 1 ОД`);
   view.fxText(u, 'сбит', 'info');
   interrupt(u, 'падение');
+}
+/* Падение с уступа (толчок, отбрасывание): сбит, Боль по высоте сквозь броню; с 3 уровней — рана, с 5 — ещё одна; с 6 — смерть. */
+export function fall(u: Unit, h) {
+  if (u.down || h <= 0) return;
+  if (S.stat) S.stat.falls = (S.stat.falls || 0) + 1;
+  if (h >= 6) {
+    ev(`✝ ${uName(u)} падает с высоты ${h} и разбивается`);
+    u.dead = true;
+    u.hp = 0;
+    downUnit(u, null);
+    return;
+  }
+  const n = fallPain(h);
+  ev(`⤵ ${uName(u)} падает с уступа высотой ${h}: ${n} Боли сквозь броню${h >= 3 ? ', рана' : ''}`);
+  setProne(u, 'падение');
+  applyDamage(u, n, null);
+  if (h >= 3 && !u.down) addWound(u, pick(AREAS));
+  if (h >= 5 && !u.down) addWound(u, pick(AREAS));
 }
 export function addStrong(u: Unit, type) {
   u.effects = u.effects.filter(e => e.type !== type);
@@ -308,7 +327,7 @@ export function v2DefOptions(def: Unit, att: Unit, act: Action, opt) {
         l: 'рана руки',
         v: -2 * s,
       });
-    if (def.effects.some(e => e.type === 'bucklerOpen')) m.push({l:'Подбив баклером', v:-3});
+    if (def.effects.some(e => e.type === 'bucklerOpen')) m.push({ l: 'Подбив баклером', v: -3 });
     out.push({
       mode: 'block',
       name: 'Блок щитом',
@@ -343,7 +362,7 @@ export function v2DefOptions(def: Unit, att: Unit, act: Action, opt) {
         l: 'рана руки',
         v: -2 * s,
       });
-    if (def.effects.some(e => e.type === 'bucklerOpen')) m.push({l:'Подбив баклером', v:-3});
+    if (def.effects.some(e => e.type === 'bucklerOpen')) m.push({ l: 'Подбив баклером', v: -3 });
     out.push({
       mode: 'parry',
       name: 'Парирование',
@@ -372,7 +391,7 @@ export async function v2Defend(def: Unit, att: Unit, act: Action, total, pas, op
     const dNow = ap3Degree(total - pas);
     ch = await view.askChoice(
       'Активная защита',
-      `<p>Атака: ${uName(att)} → ${uName(def)} (${esc(act.name)}). Бросок <b>${total}</b> против Стойкости ${pas}: ${dNow.txt}${dNow.t ? `, урон <b>${dmgAfter(att, act, def, dNow.t)}</b>` : ''}.</p><p>Защита сравнивается с этим же броском. Она тратит 1 очко реакции (осталось ${def.od || 0}${dexFree(def) ? ', плюс бесплатное уклонение' : ''}); неудачная защита ничего не ухудшает.</p>`,
+      `<p>Атака: ${uName(att)} → ${uName(def)} (${esc(act.name)}). Бросок <b>${total}</b> против Стойкости ${pas}: ${dNow.txt}${dNow.t ? `, Боль <b>${dmgAfter(att, act, def, dNow.t)}</b>` : ''}.</p><p>Защита сравнивается с этим же броском. Она тратит 1 очко реакции (осталось ${def.od || 0}${dexFree(def) ? ', плюс бесплатное уклонение' : ''}); неудачная защита ничего не ухудшает.</p>`,
       [
         ...ops.map(o => ({
           v: o.mode,
@@ -392,8 +411,8 @@ export async function v2Defend(def: Unit, att: Unit, act: Action, total, pas, op
   }
   const o = ops.find(x => x.mode === ch);
   if (!o) return null;
-  if ((o.mode === 'parry' || o.mode === 'block') && def.effects.some(e=>e.type==='bucklerOpen')) {
-    def.effects = def.effects.filter(e=>e.type!=='bucklerOpen');
+  if ((o.mode === 'parry' || o.mode === 'block') && def.effects.some(e => e.type === 'bucklerOpen')) {
+    def.effects = def.effects.filter(e => e.type !== 'bucklerOpen');
   }
   const r = d20(),
     tot = r + o.m,
@@ -635,6 +654,10 @@ export async function shove(u: Unit, t, n) {
       moved++;
       view.renderTokens();
       await sleep(70);
+      if (kb.fall) {
+        fall(t, kb.fall);
+        break;
+      }
       if (trapCheck(t)) break;
       continue;
     }
@@ -739,8 +762,11 @@ export async function shieldControl(u: Unit, to, hit) {
       e.pushed[u.id] = S.round;
       e.od--;
       hit.add(e.id);
-      if (S.stat) { const m = S.stat.skillEvents || (S.stat.skillEvents = {}); m.bucklerCtl = (m.bucklerCtl || 0) + 1; }
-      const ok = await doPush(e, u, {why:'Контроль баклером'});
+      if (S.stat) {
+        const m = S.stat.skillEvents || (S.stat.skillEvents = {});
+        m.bucklerCtl = (m.bucklerCtl || 0) + 1;
+      }
+      const ok = await doPush(e, u, { why: 'Контроль баклером' });
       if (ok || u.down || S.over) return false;
       continue;
     }

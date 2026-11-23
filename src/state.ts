@@ -196,6 +196,18 @@ export function parseScenario(id) {
       b.torches--;
     }
   }
+  const hgt = {},
+    stairs = {};
+  (sc.hmap || []).forEach((row, y) =>
+    [...row].forEach((ch, x) => {
+      const k = key(x, y);
+      if (ch >= '1' && ch <= '6') hgt[k] = +ch;
+      else if (ch >= 'a' && ch <= 'g') {
+        stairs[k] = true;
+        if (ch !== 'a') hgt[k] = ch.charCodeAt(0) - 97;
+      }
+    }),
+  );
   return {
     scn: id,
     w: W,
@@ -204,6 +216,8 @@ export function parseScenario(id) {
     torches,
     doors,
     bars,
+    hgt,
+    stairs,
     units: list,
   };
 }
@@ -221,6 +235,8 @@ export function buildState(snap): GameState {
     })),
     doors: JSON.parse(JSON.stringify(snap.doors || {})),
     bars: JSON.parse(JSON.stringify(snap.bars || {})),
+    hgt: { ...(snap.hgt || {}) },
+    stairs: { ...(snap.stairs || {}) },
     units,
     round: 1,
     phaseIdx: 0,
@@ -292,6 +308,8 @@ export function snapshotNow() {
     })),
     doors: JSON.parse(JSON.stringify(S.doors)),
     bars: JSON.parse(JSON.stringify(S.bars)),
+    hgt: { ...(S.hgt || {}) },
+    stairs: { ...(S.stairs || {}) },
     units,
   };
 }

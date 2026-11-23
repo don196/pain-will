@@ -118,6 +118,8 @@ export interface Scenario {
   name: string;
   goal: string;
   map: string[];
+  /* Высоты той же формы, что map: цифра — уровень 0–6; буква a–g — лестница на уровне 0–6. */
+  hmap?: string[];
   pool?: string[];
 }
 
