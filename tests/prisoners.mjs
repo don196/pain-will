@@ -33,7 +33,7 @@ try {
   console.log('✓ Обе тюремные карты, двери, расстановка, противники и лимиты Боли');
 
   const stepback=await page.evaluate(async()=>{
-    P.loadScenario('prison33');P.S.sim=true;P.S.phase='en';
+    P.loadScenario('prison33');await new Promise(r=>setTimeout(r,80));P.S.sim=true;P.S.phase='en';
     const u=P.S.units.find(u=>u.tpl==='prisonKnife');u.od=3;
     const c=[...P.bfs(u,{max:1}).entries()].find(([k,v])=>v.d===1);
     const [x,y]=c[0].split(',').map(Number);
@@ -42,7 +42,6 @@ try {
     const ok=await P.performMove(u,x,y,'prisonBackstep');
     return {ok,odBefore,od:u.od,down:u.down,over:P.S.over,prone:u.prone,pos:[u.x,u.y],d:P.hd(before.x,before.y,u.x,u.y),second:P.okAct(u,'prisonBackstep'),events:P.S.log?.slice(-3)};
   });
-  console.log('Stepback diagnostic',JSON.stringify(stepback));
   assert.equal(stepback.ok,true);
   assert.equal(stepback.od,2);
   assert.equal(stepback.d,1);
@@ -50,7 +49,7 @@ try {
   console.log('✓ Отскок: 1 гекс, 1 ОД, повтор запрещён');
 
   const grab=await page.evaluate(async()=>{
-    P.loadScenario('prison33');P.S.sim=true;P.S.phase='en';
+    P.loadScenario('prison33');await new Promise(r=>setTimeout(r,80));P.S.sim=true;P.S.phase='en';
     const j=P.S.units.find(u=>u.tpl==='prisonJailer'), c=P.S.units.find(u=>u.tpl==='conrad');
     j.x=8;j.y=7;c.x=9;c.y=7;j.od=3;c.od=3;
     const pain0=P.painOf(c);
@@ -66,7 +65,7 @@ try {
   console.log('✓ Захват руки: без Боли, запрещён меч и движение, освобождение встречной Силой');
 
   const circle=await page.evaluate(async()=>{
-    P.loadScenario('prison33');P.S.sim=true;P.S.phase='en';
+    P.loadScenario('prison33');await new Promise(r=>setTimeout(r,80));P.S.sim=true;P.S.phase='en';
     const ch=P.S.units.find(u=>u.tpl==='prisonChain'), j=P.S.units.find(u=>u.tpl==='prisonJailer'), c=P.S.units.find(u=>u.tpl==='conrad');
     ch.x=8;ch.y=7;j.x=9;j.y=7;c.x=7;c.y=7;ch.od=3;
     const p0=P.painOf(j),p1=P.painOf(c);
@@ -79,7 +78,7 @@ try {
   console.log('✓ Круговой удар цепью: 2 ОД, независимые удары по своему и чужому');
 
   const intercept=await page.evaluate(async()=>{
-    P.loadScenario('prison33');P.S.sim=true;P.S.phase='en';
+    P.loadScenario('prison33');await new Promise(r=>setTimeout(r,80));P.S.sim=true;P.S.phase='en';
     const ch=P.S.units.find(u=>u.tpl==='prisonChain'),c=P.S.units.find(u=>u.tpl==='conrad');
     ch.x=8;ch.y=7;c.x=10;c.y=7;ch.od=3;
     await P.perform(ch,'prisonChainReady');
