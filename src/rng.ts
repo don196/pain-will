@@ -15,4 +15,6 @@ export const rngState = () => st;
 export function setRngState(v: number) {
   st = v | 0;
 }
+/* Ведущий может задать следующие броски d20 (очередь). */
+export const FORCED: number[] = [];
 export const newSeed = () => (Date.now() ^ (performance.now() * 1000)) >>> 0 || 1;

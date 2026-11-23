@@ -105,6 +105,18 @@ try {
       });
       ok(u41.back && u41.same && u41.rib > 0 && u41.def && u41.ko, 'отмена с теми же кубиками, лента событий, прогноз с защитой', JSON.stringify(u41));
 
+      // 4.2: таблицы правил, ведущий, сравнение A/B
+      const t42 = await page.evaluate(async () => {
+        P.SET.tbl = JSON.parse(JSON.stringify(P.DEFAULT_TBL)); P.SET.tbl.pcls.med[2] = 5; P.applyTables();
+        const tbl = P.PCLS.med[3] === 5; P.SET.tbl = null; P.applyTables();
+        const c = P.S.units.find(u => u.tpl === 'conrad'), p0 = P.painOf(c);
+        P.gmAct(c, 'pain+'); const gm = P.painOf(c) === p0 + 1; P.undo();
+        P.FORCED.push(20); const r = P.d20() === 20;
+        P.openSim(); await P.runSim(10, { lightBonus: true }); const ab = /B − A/.test(document.querySelector('#simOut').innerText); P.closeModal();
+        return { tbl, gm, back: P.painOf(P.S.units.find(u => u.tpl === 'conrad')) === p0, r, ab };
+      });
+      ok(t42.tbl && t42.gm && t42.back && t42.r && t42.ab, 'таблицы правил, вмешательство ведущего, сравнение A/B', JSON.stringify(t42));
+
       // 4.0: высоты — лестница, уступ, падение, +2 сверху
       await page.evaluate(() => P.loadScenario('heights'));
       await page.waitForTimeout(300);

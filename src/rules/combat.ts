@@ -11,11 +11,11 @@ import { LASSO_R, SNARE_PART, immobile, lassoPart, lassoSnap, lassoTarget, relea
 import { hiddenFrom } from './light';
 import { ev, sleep, uName } from './log';
 import { takeVuln, weakMag } from './magic';
-import { onEdge, painInfo, painPen, painTxt, painWear } from './pain';
+import { onEdge, painInfo, painPen, painTxt, painWear, wClass } from './pain';
 import { ap3Degree, defThr, dexFree, isSpell } from './reactions';
 import { actId, dmgAfter, getEff, hasEff, hitCalc, modsStr, pContest, removeEff, reqOk, stat } from './stats';
 import { AREAS, addWound, vital, woundPenTxt } from './wounds';
-import { SET } from '../settings';
+import { SET, TBL } from '../settings';
 import { S, byId, friends, hostiles } from '../state';
 import { HXD, cheb, d20, esc, hcube, hd, pct, pick, sum, sz } from '../util';
 import { view } from '../view';
@@ -355,7 +355,17 @@ export function v2DefOptions(def: Unit, att: Unit, act: Action, opt) {
         v: mast(def),
       },
     ];
-    if (wt)
+    if (SET.parryDiff) {
+      /* вариант 4.5: штраф — разница условных весов оружия защитника и атакующего */
+      const W = TBL().parryW,
+        dw = A[meleeInHand(def)],
+        diff = dw ? Math.abs((W[wClass(def, dw)] || 3) - (W[wClass(att, act)] || 3)) : 0;
+      if (diff)
+        m.push({
+          l: 'разница весов',
+          v: -diff,
+        });
+    } else if (wt)
       m.push({
         l: 'вес оружия',
         v: -wt,

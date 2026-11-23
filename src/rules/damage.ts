@@ -51,6 +51,7 @@ export function downUnit(u: Unit, src?) {
   }
   if (S.stat) {
     (S.stat.kills = S.stat.kills || []).push([u.side, S.round, u.tpl]);
+    (S.stat.downAt = S.stat.downAt || []).push([u.x, u.y, u.side]);
   }
   if (u.side === 'pc' && !u.dead) {
     u.ko = true;

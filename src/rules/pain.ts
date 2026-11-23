@@ -8,6 +8,7 @@ import { stat } from './stats';
 import { AREAS, addWound, tickWounds } from './wounds';
 import { S } from '../state';
 import { esc, pick } from '../util';
+import { DEFAULT_TBL, SET, TBL } from '../settings';
 import { view } from '../view';
 
 /* Предел: 5, герой +1, Крепкий +1, Хрупкий −1, рядовой противник −1. Внутри: hp — сколько Боли ещё можно принять. Противник: maxHp = предел. Герой: maxHp = предел + 1, hp 1 — «на пороге». */
@@ -16,11 +17,26 @@ export const PCLS = {
   med: [0, 1, 2, 3],
   heavy: [0, 1, 2, 4],
 };
+/* Таблица Боли из «Правил»: подставить в PCLS (ссылки на массивы те же). */
+export function applyTables() {
+  const t = TBL();
+  for (const k of ['light', 'med', 'heavy']) {
+    const v = (t.pcls && t.pcls[k]) || DEFAULT_TBL.pcls[k];
+    PCLS[k][1] = +v[0];
+    PCLS[k][2] = +v[1];
+    PCLS[k][3] = +v[2];
+  }
+}
 export function painLim(t) {
   t = t || {};
+  const b = TBL();
   return t.lim != null
     ? t.lim
-    : 5 + (t.side === 'pc' ? 1 : 0) + (t.tough ? 1 : 0) - (t.fragile ? 1 : 0) - (t.mook ? 1 : 0);
+    : b.limBase +
+        (t.side === 'pc' ? b.limHero : 0) +
+        (t.tough ? b.limTough : 0) +
+        (t.fragile ? b.limFragile : 0) +
+        (t.mook ? b.limMook : 0);
 }
 export const limOf = (u: Unit) => (u.lim != null ? u.lim : painLim(T[u.tpl]));
 export function painOf(u: Unit) {
@@ -29,7 +45,7 @@ export function painOf(u: Unit) {
 
 /* Боль мешает действовать: −1 к атакам и способностям за каждые 2 Боли. */
 export function painPen(u: Unit) {
-  return Math.floor(Math.min(limOf(u), painOf(u)) / 2);
+  return Math.floor(Math.min(limOf(u), painOf(u)) / Math.max(1, TBL().painStep));
 }
 export const onEdge = (u: Unit) => !!u && u.side === 'pc' && !u.down && u.hp <= 1;
 export const armorNow = (u: Unit) => (u.armorPts == null ? u.armor || 0 : u.armorPts);
@@ -37,6 +53,8 @@ export const composure = t => 8 + stat(t, 'int');
 export function wClass(att: Unit, act: Action) {
   let c = act.pcls || (wtOf(act) >= 4 ? 'heavy' : wtOf(act) === 0 && !act.ranged && !act.magic ? 'light' : 'med');
   if (c === 'heavy' && stat(att, 'str') < 6) c = 'med';
+  /* вариант 4.5: дубина толстяка — среднее оружие */
+  if (SET.parryDiff && c === 'heavy' && att && att.tpl === 'dummyFat') c = 'med';
   return c;
 }
 export function wType(act: Action) {
@@ -62,7 +80,7 @@ export function painInfo(att: Unit, act: Action, def: Unit, t, o: Opts = {}) {
     wear = 0;
   /* Броня гасит половину текущей прочности (вверх) от каждого удара; колющее усиленным и критическим — на 1 меньше. Критический стирает пункт прочности, дробящее — и усиленный. */
   if (ap > 0) {
-    const k = Math.ceil(ap / 2);
+    const k = Math.ceil(ap / Math.max(1, TBL().armorDiv));
     abs = Math.min(raw, typ === 'pierce' && t > 1 ? k - 1 : k);
     wear = t >= 3 || (typ === 'blunt' && t >= 2) ? 1 : 0;
   }
@@ -153,7 +171,9 @@ export function enterEdge(u: Unit) {
   u.prep = null;
   u.prone = true;
   if (u.st) u.st.unst = 0;
-  u.od = Math.min(u.od || 0, 1);
+  u.od = SET.edgeLast ? 0 : Math.min(u.od || 0, 1);
+  u._edgeMark = S.round + ':' + S.phaseIdx;
+  u._lastTurn = false;
   ev(
     `💢 ${uName(u)} — Боль дошла до предела (${limOf(u)}): <b>на пороге</b>. Лежит, 1 ОД в ход: ползти, перевязывать, отдавать приказы. Любая новая Боль — без сознания`,
     { k: 'edge', u: u.id },
@@ -188,7 +208,17 @@ export function doRevive(u: Unit, t) {
   view.fxText(t, 'в сознании', 'heal');
 }
 export const EDGE_KINDS = ['move', 'bandage', 'revive', 'ordnow', 'ordback', 'unlasso', 'escape'];
-export const edgeOk = (id, a) => EDGE_KINDS.includes(a.kind) || id === 'escape';
+const ATTACKISH = ['attack', 'pair', 'arc', 'circle', 'grab', 'push', 'dash'];
+/* На пороге: ползти, перевязывать, приказывать. Варианты 4.5: «последний ход» — ещё речь и неатакующая магия;
+   «голос и жесты» — из магии только голосовые заклинания. */
+export const edgeOk = (id, a) =>
+  EDGE_KINDS.includes(a.kind) ||
+  id === 'escape' ||
+  (SET.voiceOnly
+    ? a.cast === 'voice' || (!!a.speech && !a.magic && !ATTACKISH.includes(a.kind))
+    : SET.edgeLast
+      ? (!!a.speech || !!a.magic) && !ATTACKISH.includes(a.kind)
+      : false);
 export const koAt = (x, y) => S.units.find(o => o.down && o.ko && !o.dead && inFoot(o, x, y)) || null;
 export function painPrep(u: Unit) {
   const t = tplOf(u);

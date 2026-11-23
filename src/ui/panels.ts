@@ -16,7 +16,7 @@ import {
   weaponsOf,
   zocWeapon,
 } from '../rules/actions';
-import { V2_EFF, mast, mastMg, partSt, stOf, v2DefOptions } from '../rules/combat';
+import { V2_EFF, addSt, mast, mastMg, partSt, setProne, stOf, v2DefOptions } from '../rules/combat';
 import { changeWill, disForm, disLock, disOf } from '../rules/disorders';
 import { near1, pairOptions, posOf, unitAt } from '../rules/geometry';
 import { hAt, hasHeights } from '../rules/height';
@@ -35,7 +35,10 @@ import { renderEditor } from './editor';
 import { restart } from './game';
 import { hintOf } from './hints';
 import { endTurnUI, onAction, run } from './input';
-import { canRedo, canUndo, redo, reroll, undo } from './history';
+import { canRedo, canUndo, redo, remember, reroll, undo } from './history';
+import { FORCED } from '../rng';
+import { applyDamage } from '../rules/damage';
+import { addWound } from '../rules/wounds';
 import { armorTxt, downTxt, odPipsHTML, openLegend, painSegs, v2CardLines } from './status';
 import { $, esc, fmtN, pct, sgn, sum, sz } from '../util';
 export function actState(u: Unit, id) {
@@ -834,6 +837,11 @@ export function renderCard() {
     <button type="button" data-w="-5">−5</button><button type="button" data-w="-1">−1</button><button type="button" data-w="1">+1</button><button type="button" data-w="5">+5</button></div>
     <div class="willrow">${disSel}</div>${u.disorder && !f ? '<div class="help">Порог не достигнут: слабая форма с −10, сильная с −20.</div>' : ''}`;
   html += `<div class="willrow"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="torchChk" ${u.torch ? 'checked' : ''}> несёт горящий факел</label></div>`;
+  if (!S.editor)
+    html += `<div class="gmt"><div class="gml">Вмешаться в бой</div>
+      <div class="gmr"><button type="button" data-gm="pain+">Боль +1</button><button type="button" data-gm="pain-">Боль −1</button><select id="gmArea" aria-label="Куда рана">${AREAS.map(a => `<option value="${a}">${AREA_RU[a]}</option>`).join('')}</select><button type="button" data-gm="wound">Рана</button></div>
+      <div class="gmr"><button type="button" data-gm="prone">Сбить</button><button type="button" data-gm="unst">Неустойчивость</button><button type="button" data-gm="disor">Дезориентация</button><button type="button" data-gm="bleed">Кровотечение +1</button><button type="button" data-gm="stun">Оглушить</button><button type="button" data-gm="clear">Снять состояния</button></div>
+      <div class="gmr"><button type="button" data-gm="move" ${S.gmMove === u.id ? 'aria-pressed="true"' : ''}>${S.gmMove === u.id ? 'Нажмите клетку…' : 'Переставить'}</button><label>следующий d20 <input type="number" class="ni" id="gmD20" min="1" max="20"></label><button type="button" data-gm="d20">Задать</button><span class="dim">${FORCED.length ? 'в очереди: ' + FORCED.join(', ') : ''}</span></div></div>`;
   if (S.editor && !u.down) {
     html += `<div class="edstats">
       ${[
@@ -852,6 +860,9 @@ export function renderCard() {
   box.innerHTML = html;
   const tl = $('#toLog');
   if (tl) tl.onclick = () => setTab('log');
+  box
+    .querySelectorAll('[data-gm]')
+    .forEach(b => ((b as HTMLElement).onclick = () => gmAct(u, (b as HTMLElement).dataset.gm)));
   box.querySelectorAll('[data-w]').forEach(
     b =>
       (b.onclick = () => {
@@ -892,6 +903,53 @@ export function renderCard() {
       u.side = sd.value;
       render();
     };
+}
+/* Вмешательство ведущего прямо в бою. Каждое действие можно отменить. */
+export function gmAct(u: Unit, k) {
+  if (!S || S.busy) return;
+  if (k === 'move') {
+    S.gmMove = S.gmMove === u.id ? null : u.id;
+    render();
+    return;
+  }
+  if (k === 'd20') {
+    const v = Math.round(+$('#gmD20').value);
+    if (v >= 1 && v <= 20) {
+      FORCED.push(v);
+      ev(`🎲 Ведущий: следующий d20 — ${v}`);
+    }
+    render();
+    return;
+  }
+  remember();
+  const who = uName(u);
+  if (k === 'pain+') {
+    ev(`🎲 Ведущий: ${who} +1 Боль`);
+    applyDamage(u, 1, null);
+  } else if (k === 'pain-' && !u.down) {
+    u.hp = Math.min(u.maxHp, u.hp + 1);
+    ev(`🎲 Ведущий: ${who} −1 Боль`);
+  } else if (k === 'wound') {
+    ev(`🎲 Ведущий: рана ${who}`);
+    addWound(u, $('#gmArea').value);
+  } else if (k === 'prone') setProne(u, 'ведущий');
+  else if (k === 'unst') addSt(u, 'unst', 1, 'ведущий');
+  else if (k === 'disor') addSt(u, 'disor', 1, 'ведущий');
+  else if (k === 'bleed') {
+    u.bleed = (u.bleed || 0) + 1;
+    ev(`🎲 Ведущий: ${who} кровотечение +1, стаков ${u.bleed}`);
+  } else if (k === 'stun') {
+    u.stunned = true;
+    ev(`🎲 Ведущий: ${who} оглушён — пропустит ход`);
+  } else if (k === 'clear') {
+    u.st = {};
+    u.prone = false;
+    u.bleed = 0;
+    u.stunned = false;
+    u.effects = [];
+    ev(`🎲 Ведущий: с ${who} сняты состояния`);
+  }
+  render();
 }
 /* Вкладки правой панели: Боец, Журнал, Сцена. */
 export function setTab(t) {

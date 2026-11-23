@@ -15,6 +15,7 @@ import { toggleEditor } from './ui/editor';
 import { loadScenario, restart, startGame } from './ui/game';
 import { endTurnUI, hideTip, notePointer, onCellClick, onCellHover } from './ui/input';
 import { redo, undo } from './ui/history';
+import { applyTables } from './rules/pain';
 import { closeModal, openNotes, openRules } from './ui/modals';
 import { initUI2, render } from './ui/panels';
 import { openOdds, openSim } from './ui/sim';
@@ -22,6 +23,7 @@ import { $ } from './util';
 
 function init(data) {
   loadData();
+  applyTables();
   $('#scn').innerHTML = Object.entries(SCN)
     .map(([k, v]) => `<option value="${k}">${v.name}</option>`)
     .join('');

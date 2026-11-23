@@ -689,3 +689,62 @@ details.sec summary{cursor:pointer;font:600 10.5px var(--cond);letter-spacing:.1
 @media (max-width:700px){.ribbon{padding:4px 8px 4px 14px;min-height:38px}}
 
 @media (max-width:700px){.ribbon:has(.rbe){display:none}}
+
+/* ===== 4.2: симуляция A/B, графики, таблицы правил, ведущий, карточки бойцов на телефоне ===== */
+.simctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.simab{margin:12px 0 4px;border:1px solid var(--rule);border-radius:10px;padding:8px 12px}
+.simab summary{cursor:pointer;font-weight:600}
+.abvar{display:flex;flex-direction:column;gap:6px;margin:10px 0 4px}
+.abvar label{display:flex;gap:8px;align-items:center;font-size:13.5px}
+.abt{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums;margin:6px 0 10px}
+.abt th,.abt td{border-bottom:1px solid var(--rule);padding:5px 8px;text-align:left}
+.abt td:nth-child(n+2){font-family:var(--mono);font-size:12px}
+.abt .dgood{color:#7fd17f}.abt .dbad{color:#ff8a6b}
+.lgA,.lgB{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:middle}
+.lgA{background:#3987e5}.lgB{background:#d95926}
+.charts{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px;margin-top:12px}
+.chart{margin:0;background:var(--slab-2);border:1px solid var(--rule);border-radius:12px;padding:10px 12px}
+.chart figcaption{font-size:13px;font-weight:600;margin-bottom:6px;color:var(--bone)}
+.cht{width:100%;height:auto;display:block}
+.cht .grid{stroke:#2c2c2a;stroke-width:1}
+.cht .base{stroke:#383835;stroke-width:1}
+.cht .ax{font:400 10px var(--mono);fill:#aab2bd}
+.cht .hit{fill:transparent}
+.cht .hit:hover{fill:rgba(255,255,255,.05)}
+.clg{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:#cfd5dc;margin-top:6px}
+.clg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.ochart{display:flex;flex-direction:column;gap:5px}
+.orow{display:grid;grid-template-columns:92px minmax(0,1fr) 46px;gap:8px;align-items:center;font-size:12.5px}
+.orow .on{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.orow .on em{font-style:normal;color:var(--ash);margin-left:4px;font-family:var(--mono);font-size:11px}
+.obar{display:flex;gap:2px;height:12px}
+.obar i{display:block;height:100%;border-radius:3px;min-width:2px}
+.ov{font:400 11px var(--mono);color:#cfd5dc;text-align:right}
+.fmaps{display:flex;gap:10px;flex-wrap:wrap}
+.fmap{flex:1 1 150px;min-width:0}
+.fmap svg{width:100%;height:auto;display:block}
+.fmt{font-size:12px;color:var(--ash);margin-bottom:3px}
+.tbls{display:flex;flex-direction:column;gap:10px}
+.odds.tbl td{padding:3px 6px}
+.odds.tbl input{width:52px}
+.tblr{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:13px}
+.tblr label{display:flex;gap:6px;align-items:center}
+.gmt{margin-top:10px;border-top:1px dashed var(--rule);padding-top:8px;display:flex;flex-direction:column;gap:6px}
+.gml{font:600 10.5px var(--cond);letter-spacing:.14em;text-transform:uppercase;color:var(--ash)}
+.gmr{display:flex;flex-wrap:wrap;gap:5px;align-items:center;font-size:12.5px}
+.gmr button{padding:4px 9px;font-size:12.5px;border-radius:7px}
+.gmr select{padding:3px 6px;font-size:12.5px}
+.gmr label{display:flex;gap:5px;align-items:center}
+@media (max-width:700px){
+  .dtab thead{display:none}
+  .dtab,.dtab tbody{display:block}
+  .dtab tr:not(.wrow){display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 10px;padding:12px 4px 4px;border-top:1px solid var(--rule)}
+  .dtab tr:not(.wrow) td{display:flex;flex-direction:column;gap:2px;padding:0;border:0;white-space:normal}
+  .dtab tr:not(.wrow) td::before{content:attr(data-l);font:600 10.5px var(--cond);letter-spacing:.06em;text-transform:uppercase;color:var(--ash)}
+  .dtab tr:not(.wrow) td:first-child{grid-column:1/-1}
+  .dtab tr:not(.wrow) td input:not([type=checkbox]),.dtab tr:not(.wrow) td select{width:100%;max-width:none}
+  .dtab tr.wrow{display:block}
+  .dtab tr.wrow td{display:block;padding:4px 4px 12px}
+  .charts{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:700px){.tbls table.odds{display:block;overflow-x:auto}}

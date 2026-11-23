@@ -3,7 +3,7 @@ import { DIS, DIS_ICON } from '../data/disorders';
 import { EFF_RU } from '../data/labels';
 import { isHuman, okAct } from './actions';
 import { decaySt } from './combat';
-import { applyDamage } from './damage';
+import { applyDamage, downUnit } from './damage';
 import { disForm, disOf, guiltCell, guiltNext } from './disorders';
 import { lassoPart } from './lasso';
 import { ev, log, uName } from './log';
@@ -99,10 +99,19 @@ export async function beginPhase() {
     u.turnNo = (u.turnNo || 0) + 1;
     u._acted = false;
     if (onEdge(u)) {
-      u.od = Math.min(u.od, 1);
       u.prone = true;
-      if (!u.skipped) ev(`💢 ${uName(u)} на пороге: 1 ОД — ползти, перевязывать, приказывать`);
-    }
+      if (SET.edgeLast) {
+        /* вариант 4.5.1: ход, в который дошёл до порога, потерян; следующий свой — со всеми ОД, затем без сознания */
+        if (u._edgeMark === S.round + ':' + S.phaseIdx) u.od = 0;
+        else if (!u.skipped) {
+          u._lastTurn = true;
+          ev(`⏳ ${uName(u)}: последний ход перед обмороком — все ${u.od} ОД на ползок, перевязку и речь`);
+        }
+      } else {
+        u.od = Math.min(u.od, 1);
+        if (!u.skipped) ev(`💢 ${uName(u)} на пороге: 1 ОД — ползти, перевязывать, приказывать`);
+      }
+    } else u._lastTurn = false;
     if (u.ban && u.turnNo > u.ban.until) u.ban = null;
     if (u.cruelDebt) {
       const d = Math.min(u.od, u.cruelDebt);
@@ -171,6 +180,13 @@ export async function endPhase() {
       if (S.over) return;
     }
     if (!u.down) decaySt(u);
+    if (SET.edgeLast && u._lastTurn && !u.down && onEdge(u)) {
+      u._lastTurn = false;
+      ev(`💤 ${uName(u)}: последний ход окончен — без сознания`);
+      u.hp = 0;
+      downUnit(u, null);
+      if (S.over) return;
+    }
   }
   S.phaseIdx++;
   if (S.phaseIdx >= 2) {

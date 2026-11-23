@@ -1,7 +1,8 @@
 import { A } from '../data/actions';
 import { LIGHT_RU } from '../data/labels';
 import { canControl, canTarget, perform, performMove, validCell, validThrow, validTrap } from '../rules/actions';
-import { barsAt, bfs, doorAt, inFoot, los, pairOptions, pathTo, unitAt } from '../rules/geometry';
+import { barsAt, bfs, doorAt, footFree, inFoot, los, pairOptions, pathTo, unitAt } from '../rules/geometry';
+import { ev, uName } from '../rules/log';
 import { hiddenFrom, unitLight } from '../rules/light';
 import { validFlash } from '../rules/magic';
 import { koAt } from '../rules/pain';
@@ -104,6 +105,19 @@ export function onCellClick(e) {
   if (!p) return;
   if (S.editor) {
     editorClick(p.x, p.y);
+    return;
+  }
+  /* ведущий переставляет бойца */
+  if (S.gmMove != null && !S.busy) {
+    const m = S.units.find(o => o.id === S.gmMove);
+    S.gmMove = null;
+    if (m && footFree(m, p.x, p.y)) {
+      remember();
+      m.x = p.x;
+      m.y = p.y;
+      ev(`🎲 Ведущий переставил ${uName(m)}`);
+    }
+    render();
     return;
   }
   if (S.busy) return;
