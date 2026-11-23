@@ -153,6 +153,51 @@ try {
       });
       ok(ex.scn === 'heights' && ex.btn && ex.blood > 0 && ex.k === 2 && ex.w === 1 && ex.h === 4 && !ex.hdown && ex.badge, 'экспедиция: привал, перенос ран и Боли; кровь на полу; звук', JSON.stringify(ex));
 
+      // Окружение 4.5: укрытие, вода, удар и толчок бочки, разлив масла и огонь, обрушение пола, обзор сверху.
+      const tr = await page.evaluate(async () => {
+        const r = {};
+        P.loadScenario('dummies'); P.S.terrain = {};
+        const w = P.S.units.find(u => u.tpl === 'walter'), k = P.S.units.find(u => u.tpl === 'conrad');
+        const d = P.S.units.find(u => u.tpl === 'dummy');
+        w.x = 3; w.y = 4; d.x = 9; d.y = 4; k.x = 3; k.y = 2;
+        for (const u of P.S.units) if (u !== w && u !== d && u !== k) { u.x = 13; u.y = 1 + (u.id % 6); }
+        const mid = P.hexLine({ x: w.x, y: w.y }, { x: d.x, y: d.y }, 1e-6)[2];
+        P.placeTerr(mid.x, mid.y, 'table');
+        r.cover = /укрытие/.test(P.missThr(w, P.A.hxbow, d).src);
+        d.covered = true; r.hidden = !P.canTarget(w, P.A.hxbow, d); d.covered = false;
+        P.placeTerr(d.x, d.y, 'water2');
+        r.deep = P.atkMods(d, P.A.club || P.A.improv, w).some(m => m.l === 'глубокая вода');
+        P.addSt(d, 'heat', 2, 'тест'); r.noHeat = !(d.st && d.st.heat);
+        // бочка с маслом рядом с Конрадом: два сильных удара — разбита, масло разлито; огонь поджигает
+        const nb = P.nbrDirs(k.x, k.y).map(([dx, dy]) => ({ x: k.x + dx, y: k.y + dy })).filter(c => P.isFloor(c.x, c.y) && !P.unitAt(c.x, c.y));
+        const b = nb[0]; P.placeTerr(b.x, b.y, 'oilbarrel');
+        const old = Math.random; Math.random = () => 0.97;
+        try { P.objectStrike(k, b); P.objectStrike(k, b); } finally { Math.random = old; }
+        r.broken = !P.terrAt(b.x, b.y) || P.terrAt(b.x, b.y).type === 'oil';
+        r.oil = Object.values(P.S.terrain).some(t => t.type === 'oil');
+        const oc = Object.keys(P.S.terrain).find(kk => P.S.terrain[kk].type === 'oil');
+        const [ox, oy] = oc.split(',').map(Number); P.igniteTerr(ox, oy); r.fire = P.terrAt(ox, oy).type === 'burning';
+        // полная бочка катится от толкающего
+        const b2 = nb[1]; P.placeTerr(b2.x, b2.y, 'fullbarrel'); P.objectPush(k, b2); r.pushed = !P.terrAt(b2.x, b2.y) || P.terrAt(b2.x, b2.y).type !== 'fullbarrel';
+        // обрушение: шаг на провальный пол
+        P.loadScenario('brokenhall');
+        const h = P.S.units.find(u => u.tpl === 'conrad');
+        for (const u of P.S.units) if (u !== h && (u.y === 6 || u.y === 5)) u.x = 1;
+        h.x = 6; h.y = 6; const p0 = P.painOf(h);
+        await P.walk(h, [[7, 6]]);
+        r.collapse = P.hAt(7, 6) === -2 && h.prone && P.painOf(h) - p0 === 2 && !P.terrAt(8, 5);
+        // обзор: сверху вниз виден, снизу через обрыв — нет
+        P.loadScenario('stairwell');
+        const top = P.S.units.find(u => u.side === 'en'), low = P.S.units.find(u => u.tpl === 'walter');
+        for (const u of P.S.units) if (u !== top && u !== low) { u.x = 1; u.y = 1 + (u.id % 9); }
+        top.x = 12; top.y = 2; low.x = 12; low.y = 8;
+        r.downOk = P.los(top, low, top).ok; r.upBlocked = !P.los(low, top, low).ok;
+        // редактор: стол на клетку
+        return r;
+      });
+      ok(tr.cover && tr.hidden && tr.deep && tr.noHeat && tr.broken && tr.oil && tr.fire && tr.pushed && tr.collapse && tr.downOk && tr.upBlocked,
+        'окружение: укрытие, вода, бочки, масло и огонь, обрушение, обзор с высоты', JSON.stringify(tr));
+
     }
 
     if (vp.name === 'телефон') {

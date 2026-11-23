@@ -1,3 +1,5 @@
+import { terrAt, terrDef } from '../rules/terrain';
+import { TERRAIN_HINT as terrHint } from '../data/terrain';
 import { A } from '../data/actions';
 import { LIGHT_RU } from '../data/labels';
 import { canControl, canTarget, perform, performMove, validCell, validThrow, validTrap } from '../rules/actions';
@@ -54,6 +56,7 @@ export async function endTurnUI() {
   remember();
   await onEndTurn();
 }
+export const CELL_KINDS = ['door', 'objectStrike', 'objectPush'];
 export const IMMEDIATE = ['self', 'circle', 'escape', 'aura', 'breakbind', 'unbind', 'standup', 'prep', 'unlasso'];
 export function onAction(id) {
   const u = selUnit();
@@ -166,7 +169,7 @@ export function onCellClick(e) {
         run(() => perform(u, id, p));
         return;
       }
-    } else if (a.kind === 'door') {
+    } else if (CELL_KINDS.includes(a.kind)) {
       if (validCell(u, a, p.x, p.y)) {
         run(() => perform(u, id, p));
         return;
@@ -218,8 +221,12 @@ export function showTip(e, p) {
       const d = doorAt(p.x, p.y),
         b = barsAt(p.x, p.y),
         hv = hAt(p.x, p.y),
-        st = isStairs(p.x, p.y);
-      if (hv || st) {
+        st = isStairs(p.x, p.y),
+        td = terrDef(p.x, p.y),
+        to = terrAt(p.x, p.y);
+      if (td && (!td.collapse || S.editor)) {
+        tip.innerHTML = `<b>${esc(td.name)}</b>${td.hp != null ? ` · прочность ${to.hp}/${td.hp}` : ''}${hv ? ' · высота ' + hv : ''}<div class="m">${terrHint(td)}</div>`;
+      } else if (hv || st) {
         tip.innerHTML = `${hv ? 'Высота ' + hv : 'Пол'}${st ? ' · лестница: подъём без доплаты' : ''}`;
       } else if (!S.editor && (d || b)) {
         tip.innerHTML = d
@@ -262,16 +269,20 @@ export function showTip(e, p) {
         return;
       }
       html = `Бросить факел сюда · 1 ОД<div class="m">свет на ${SET.torchR || 3} гекса отсюда; в запасе ${u.torches}</div>`;
-    } else if (a.kind === 'door') {
+    } else if (CELL_KINDS.includes(a.kind)) {
       if (!validCell(u, a, p.x, p.y)) {
         hideTip();
         return;
       }
-      const d = doorAt(p.x, p.y);
+      const d = doorAt(p.x, p.y),
+        td = terrDef(p.x, p.y),
+        to = terrAt(p.x, p.y);
       html =
         a.kind === 'door'
           ? `${d.open ? 'Закрыть' : 'Открыть'} дверь · 1 ОД`
-          : 'Разрушить препятствие · 1 ОД, гарантированно';
+          : a.kind === 'objectStrike'
+            ? `Ударить: ${esc(td.name)} · 1 ОД<div class="m">d20 + атака против 10; прочность ${to.hp}/${td.hp}</div>`
+            : `Толкнуть: ${esc(td.name)} · 1 ОД<div class="m">${td.hp === 8 ? 'd20 + Сила против 15' : 'катится всегда'}; столкновение — Неустойчивость</div>`;
     } else {
       const t = unitAt(p.x, p.y);
       if (!t || !canTarget(u, a, t)) {

@@ -2,6 +2,7 @@ import type { Opts, Unit } from '../types';
 import { LASSO_R, lassoTarget } from './lasso';
 import { hiddenFrom } from './light';
 import { hAt, hNearOk, hasHeights, heightClear, stepCost } from './height';
+import { hasTerrain, isTerrOpaque, isTerrSolid, slowAt } from './terrain';
 import { speedOf } from './stats';
 import { S, hostiles } from '../state';
 import { cheb, hd, hexLine, key, nbrDirs, sz, unkey } from '../util';
@@ -14,7 +15,8 @@ export const isWall = (x, y) => {
   if (S.walls.has(k)) return true;
   const d = S.doors[k];
   if (d && !d.open) return true;
-  return !!S.bars[k];
+  if (S.bars[k]) return true;
+  return isTerrSolid(x, y);
 };
 export const isFloor = (x, y) => !isWall(x, y);
 export const blocksShot = (x, y) => {
@@ -24,14 +26,14 @@ export const blocksShot = (x, y) => {
   const d = S.doors[k];
   if (d && !d.open) return true;
   const b = S.bars[k];
-  return !!(b && !b.shoot);
+  return !!(b && !b.shoot) || isTerrOpaque(x, y);
 };
 export const blocksLight = (x, y) => {
   if (!inB(x, y)) return true;
   const k = key(x, y);
   if (S.walls.has(k)) return true;
   const d = S.doors[k];
-  return !!(d && !d.open);
+  return !!(d && !d.open) || isTerrOpaque(x, y);
 };
 
 /* Крупный боец на гексагонах — треугольник из трёх гексов вершиной вниз: опорный, правый сосед и общий нижний сосед. */
@@ -88,7 +90,7 @@ export function footWalls(u: Unit, x, y) {
 
 /* Диагональ: между двумя стенами и между стеной и персонажем — нельзя; между двумя персонажами — можно. */
 export function bfs(u: Unit, opt: Opts = {}) {
-  if (hasHeights()) return bfsH(u, opt);
+  if (hasHeights() || hasTerrain()) return bfsH(u, opt);
   const dist = new Map();
   dist.set(key(u.x, u.y), {
     d: 0,
@@ -116,7 +118,7 @@ export function bfs(u: Unit, opt: Opts = {}) {
   }
   return dist;
 }
-/* Поиск пути с высотами: подъём без лестницы дороже, уступ в 2 уровня непроходим. d — клетки перемещения. */
+/* Поиск пути с высотами и окружением: подъём без лестницы дороже, уступ в 2 уровня непроходим, вода и стулья — +1 клетка. d — клетки перемещения. */
 function bfsH(u: Unit, opt: Opts = {}) {
   const dist = new Map();
   dist.set(key(u.x, u.y), {
@@ -143,7 +145,7 @@ function bfsH(u: Unit, opt: Opts = {}) {
         k = key(nx, ny);
       if (done.has(k) || !footFree(u, nx, ny)) continue;
       if (leash && hd(nx, ny, leash.x, leash.y) > LASSO_R) continue;
-      const c = stepCost(x, y, nx, ny, climb);
+      const c = stepCost(x, y, nx, ny, climb) + slowAt(nx, ny);
       if (!isFinite(c)) continue;
       const nd = cur.d + c;
       if (opt.max != null && nd > opt.max) continue;

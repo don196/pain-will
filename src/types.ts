@@ -120,6 +120,9 @@ export interface Scenario {
   map: string[];
   /* Высоты той же формы, что map: цифра — уровень 0–6; буква a–g — лестница на уровне 0–6. */
   hmap?: string[];
+  /* Слои 4.5: высоты и окружение прямоугольниками и клетками; последний слой побеждает. */
+  heightLayers?: { level: number; rect?: number[]; cells?: number[][] }[];
+  terrainLayers?: { type: string; rect?: number[]; cells?: number[][]; depth?: number }[];
   pool?: string[];
 }
 

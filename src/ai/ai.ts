@@ -1,3 +1,5 @@
+import { aiPathDanger, hasTerrain } from '../rules/terrain';
+import { hasHeights } from '../rules/height';
 import type { Unit } from '../types';
 import { A } from '../data/actions';
 import { DISP } from '../data/disorders';
@@ -435,13 +437,15 @@ export function guardAdj(u: Unit, c) {
 export async function aiApproach(u: Unit, id, t) {
   if (!okAct(u, 'move')) return false;
   const sp = speedOf(u),
-    dist = bfs(u);
+    dist = bfs(u),
+    risky = hasHeights() || hasTerrain();
   let best = null;
   for (const [k, v] of dist) {
     const [x, y] = unkey(k),
       c = posOf(u, x, y);
     if (!canTarget(u, A[id], t, c)) continue;
-    const sc = !v.d ? -100 : v.d <= sp ? v.d * 0.01 - (guardAdj(u, c) ? 10 : 0) : v.d;
+    let sc = !v.d ? -100 : v.d <= sp ? v.d * 0.01 - (guardAdj(u, c) ? 10 : 0) : v.d;
+    if (risky && v.d) sc += aiPathDanger(u, pathTo(dist, x, y));
     if (!best || sc < best.sc)
       best = {
         x,
@@ -492,6 +496,7 @@ export async function aiRetreat(u: Unit, id) {
     if (id && foes.some(f => canTarget(u, A[id], f, c))) s += 5;
     if (md < 2) s -= 10;
     if (guardAdj(u, c)) s += 3;
+    s -= aiPathDanger(u, pathTo(dist, x, y));
     if (!best || s > best.s)
       best = {
         x,
@@ -624,7 +629,7 @@ export function shootCell(u: Unit, foes, id) {
       c = posOf(u, x, y);
     const md = Math.min(...foes.map(f => cheb(c, f)));
     if (md < 2) continue;
-    let s = -v.d * 0.2 + Math.min(md, 5) * 0.3;
+    let s = -v.d * 0.2 + Math.min(md, 5) * 0.3 - aiPathDanger(u, pathTo(dist, x, y));
     const ts = foes.filter(f => canTarget(u, a, f, c));
     if (ts.length) {
       s += 5;
@@ -719,10 +724,14 @@ Object.assign(AI, {
     if (nearby.length) {
       const alliesAble = friends(u).some(a => a.ai === 'pSpearman' && !a.down && (a.od || 0) > 0 && cheb(a, u) <= 3);
       const t = enemyPick(u, nearby);
-      if (alliesAble && okAct(u, 'bucklerTap') && !t.effects.some(e => e.type === 'bucklerOpen') && canTarget(u, A.bucklerTap, t))
+      if (
+        alliesAble &&
+        okAct(u, 'bucklerTap') &&
+        !t.effects.some(e => e.type === 'bucklerOpen') &&
+        canTarget(u, A.bucklerTap, t)
+      )
         return await perform(u, 'bucklerTap', t);
-      if (okAct(u, 'infantrySword') && canTarget(u, A.infantrySword, t))
-        return await perform(u, 'infantrySword', t);
+      if (okAct(u, 'infantrySword') && canTarget(u, A.infantrySword, t)) return await perform(u, 'infantrySword', t);
     }
     return AI.pStd(u, foes);
   },
@@ -746,8 +755,12 @@ Object.assign(AI, {
       }
       if (u.charge.readyRound > S.round) return false;
     }
-    if (u.loaded && okAct(u, 'aimReady') && foes.some(t => cheb(u, t) >= 2 && cheb(u, t) <= 10 && los(u, t, u, {noUnits:true}).ok))
+    if (
+      u.loaded &&
+      okAct(u, 'aimReady') &&
+      foes.some(t => cheb(u, t) >= 2 && cheb(u, t) <= 10 && los(u, t, u, { noUnits: true }).ok)
+    )
       return await perform(u, 'aimReady');
     return AI.pShoot(u, foes);
-  }
+  },
 });

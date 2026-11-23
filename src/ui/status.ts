@@ -133,6 +133,7 @@ export const FX_FULL = {
   spots: 'Слабые места выявлены',
   ord: 'Приказ «Сейчас!»',
   prep: 'Подготовка',
+  covered: 'В полном укрытии: стрелять сквозь укрытие нельзя',
   cover: 'Под Перехватом',
   msight: 'Магическое зрение',
 };
@@ -158,6 +159,7 @@ export const FX_ICON = {
   spots: 'M8 3v10M3 8h10M8 5.5a2.5 2.5 0 1 0 .01 0',
   ord: 'M4 15V2h8l-2 3l2 3H4',
   prep: 'M4 2h8M4 14h8M5 2c0 5 6 5 6 12M11 2c0 5-6 5-6 12',
+  covered: 'M8 1.5l5.5 2v4.5c0 3.2-2.4 5.6-5.5 6.5-3.1-.9-5.5-3.3-5.5-6.5V3.5z',
   cover: 'M8 1L14 3v5c0 4-3 6-6 7c-3-1-6-3-6-7V3Z',
   msight: 'M1 8Q8 2 15 8Q8 14 1 8ZM8 6a2 2 0 1 0 .01 0',
   x: 'M8 5a3 3 0 1 0 .01 0',
@@ -213,6 +215,7 @@ export function fxList(u: Unit) {
         n: n > 1 ? n : 0,
       });
   if (u.prone) add('prone', 'сбит');
+  if (u.covered) add('covered', 'в укрытии');
   if (u.stunned) add('out', 'без сознания');
   if (hasEff(u, 'blind2')) add('blind', 'слеп');
   if (stOf(u, 'ripple')) add('ripple', 'рябь', u.st.ripple);

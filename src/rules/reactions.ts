@@ -1,3 +1,4 @@
+import { coverBetween } from './terrain';
 import type { Action, Unit } from '../types';
 import { tplOf } from '../data/fighters';
 import { canTarget, isHuman } from './actions';
@@ -173,6 +174,7 @@ export function missThr(att: Unit, act: Action, def: Unit) {
   const rp = hasEff(att, 'blind2') ? 0 : stOf(att, 'ripple');
   if (rp) s.push(['Рябь ×' + rp, rp >= 2 ? 7 : 5]);
   if (!act.magic && !act.spell && darkPen(att)) s.push(['темнота', 5]);
+  if (act.ranged && def && coverBetween(att, def)) s.push(['укрытие', 2]);
   const v = Math.min(
     THR_CAP,
     s.reduce((a, x) => a + x[1], 0),

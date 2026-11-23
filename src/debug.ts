@@ -44,8 +44,12 @@ import * as rng from './rng';
 import * as sound from './ui/sound';
 import * as phone from './ui/phone';
 import * as expedition from './ui/expedition';
+import * as terrain from './rules/terrain';
+import * as terrData from './data/terrain';
 
 const all: any[] = [
+  terrain,
+  terrData,
   sound,
   phone,
   expedition,
