@@ -25,9 +25,8 @@ import { darkPen, unitLight } from '../rules/light';
 import { ev, uName } from '../rules/log';
 import { curseCalc, weakMag } from '../rules/magic';
 import { PCLS, edgeOk, limOf, onEdge, painOf, painPen, wClass, wType } from '../rules/pain';
-import { RBASE, canActiveDefend, conOf, odMax, openT, resist } from '../rules/reactions';
+import { RBASE, adLeft, ap3Degree, canActiveDefend, conOf, defThr, odMax, openT, resist } from '../rules/reactions';
 import { atkMods, bdefOf, hasEff, hitCalc, pContest, reqOk, speedOf, stat } from '../rules/stats';
-import { onEndTurn } from '../rules/turns';
 import { AREAS, woundPenTxt } from '../rules/wounds';
 import { SET } from '../settings';
 import { S, alive, byId, friends, selUnit } from '../state';
@@ -35,7 +34,8 @@ import { CELL, boardW, drawLight, renderHL, renderTokens, tokPos } from './board
 import { renderEditor } from './editor';
 import { restart } from './game';
 import { hintOf } from './hints';
-import { onAction, run } from './input';
+import { endTurnUI, onAction, run } from './input';
+import { canRedo, canUndo, redo, reroll, undo } from './history';
 import { armorTxt, downTxt, odPipsHTML, openLegend, painSegs, v2CardLines } from './status';
 import { $, esc, fmtN, pct, sgn, sum, sz } from '../util';
 export function actState(u: Unit, id) {
@@ -136,7 +136,13 @@ export const UI = (() => {
     det: {},
   };
   try {
-    return Object.assign(d, JSON.parse(localStorage.getItem('polygon2-ui') || '{}'));
+    const o = Object.assign(d, JSON.parse(localStorage.getItem('polygon2-ui') || '{}'));
+    /* 4.1: общая сетка зон контроля по умолчанию скрыта — предупреждение показывается на пути */
+    if (!o.v || o.v < 2) {
+      o.zoc = false;
+      o.v = 2;
+    }
+    return o;
   } catch (e) {
     return d;
   }
@@ -316,6 +322,59 @@ export function fcardTarget() {
   if (a.kind === 'pair') return pairOptions(u).some(p => p.includes(t)) ? t : null;
   return canTarget(u, a, t) ? t : null;
 }
+/* Прогноз удара с учётом активной защиты цели и шанс вывести её из боя за оставшиеся ОД. */
+export function fcCalc(u: Unit, a, t) {
+  const h = hitCalc(u, a, t),
+    th = h.thr ? h.thr.v : 0;
+  let best = null;
+  if (canActiveDefend(t) && !a.lasso) {
+    const dth = defThr(t, a);
+    for (const o of v2DefOptions(t, u, a, {})) {
+      const m = sum(o.mods),
+        pf = tot => Math.max(0, Math.min(1, (21 - Math.max(dth + 1, tot - m + 1)) / 20));
+      let avg = 0;
+      for (let r = 1; r <= 20; r++) avg += r <= th ? 0 : pf(r + h.M);
+      if (!best || avg > best.avg) best = { name: o.name, pf, avg: avg / 20 };
+    }
+  }
+  const one = withDef => {
+    const p = [0, 0, 0, 0];
+    let par = 0;
+    for (let r = 1; r <= 20; r++) {
+      if (r <= th) {
+        p[0]++;
+        continue;
+      }
+      const tot = r + h.M,
+        deg = a.lasso ? (tot >= h.D ? 1 : 0) : ap3Degree(tot - h.D).t,
+        pd = withDef && best ? best.pf(tot) : 0;
+      par += pd;
+      p[deg] += 1 - pd;
+    }
+    return { p: p.map(x => x / 20), par: par / 20 };
+  };
+  const first = one(true);
+  /* вывести из боя: противник — Боль до предела; герой — сверх предела (после «на пороге») */
+  const L = limOf(t),
+    p0 = Math.min(L, painOf(t)),
+    need = t.side === 'pc' ? (onEdge(t) ? 1 : L - p0 + 1) : L - p0;
+  const cost = Math.max(1, actCost(u, S.act || '') || a.cost || 1),
+    k = Math.max(1, Math.floor((u.od || 0) / cost)),
+    reacts = canActiveDefend(t) ? Math.max(1, adLeft(t)) : 0;
+  let dist = [1];
+  for (let i = 0; i < k; i++) {
+    const o = one(i < reacts),
+      next = new Array(dist.length + 5).fill(0);
+    dist.forEach((pv, s0) => {
+      if (!pv) return;
+      next[s0] += pv * (o.p[0] + o.par);
+      for (let d = 1; d <= 3; d++) next[s0 + Math.max(0, h.dm[d] || 0)] += pv * o.p[d];
+    });
+    dist = next;
+  }
+  const ko = a.noPain || a.fixed === 0 ? 0 : dist.reduce((acc, pv, s0) => acc + (s0 >= need ? pv : 0), 0);
+  return { h, best, first, ko, k, need, L, p0 };
+}
 export function renderFcard() {
   const box = $('#fcard');
   if (!box) return;
@@ -327,36 +386,47 @@ export function renderFcard() {
     return;
   }
   const a = A[S.act],
-    h = hitCalc(u, a, t),
+    F = fcCalc(u, a, t),
+    h = F.h,
     cost = actCost(u, S.act),
-    L = limOf(t),
-    p0 = painOf(t),
+    L = F.L,
+    p0 = F.p0,
     touch = S.pendT === t.id;
   const DN = ['Мимо', 'Обычный', 'Усиленный', 'Крит'],
     DC = ['miss', 'ok', 'enh', 'crit'];
   let rows = '';
+  const miss = F.first.p[0] + F.first.par;
   for (let k = 0; k <= 3; k++) {
-    if (!k && h.p[0] <= 0) continue;
+    const pk = k ? F.first.p[k] : miss;
+    if (!k && pk <= 0) continue;
     const d = k ? h.dm[k] : 0,
       res =
         k === 0
-          ? 'без Боли'
+          ? F.first.par > 0
+            ? `отбито ${pct(F.first.par)}`
+            : 'без Боли'
           : a.noPain || a.fixed === 0
             ? 'без Боли'
             : d <= 0
               ? '0 — броня гасит'
               : `+${d} Боли${p0 + d >= L ? (t.side === 'pc' ? ', на пороге' : ', выбывает') : ''}`;
-    rows += `<div class="fr ${DC[k]}"><span class="fl">${DN[k]}</span><span class="fb"><i style="width:${Math.round(h.p[k] * 100)}%"></i></span><span class="fp">${pct(h.p[k])}</span><span class="fd">${res}</span></div>`;
+    rows += `<div class="fr ${DC[k]}"><span class="fl">${k ? DN[k] : F.first.par > 0 ? 'Отбито' : DN[0]}</span><span class="fb"><i style="width:${Math.round(pk * 100)}%"></i></span><span class="fp">${pct(pk)}</span><span class="fd">${res}</span></div>`;
   }
   const maxD = Math.max(0, ...h.dm.slice(1));
   let segs = '';
   for (let i = 0; i < L; i++) segs += `<i class="${i < p0 ? 'on' : i < p0 + maxD ? 'gh' : ''}"></i>`;
   const mods = atkMods(u, a, t);
-  const ad = canActiveDefend(t) ? `<div class="fn">У цели есть активная защита: может отбить этот же бросок</div>` : '';
+  const ad = F.best
+    ? `<div class="fn">Цель защищается: ${esc(F.best.name.toLowerCase())}, отбивает ${pct(F.best.avg)} бросков (запас реакций ${adLeft(t)})</div>`
+    : `<div class="fn dim">Активной защиты у цели сейчас нет</div>`;
+  const ko =
+    a.noPain || a.fixed === 0
+      ? ''
+      : `<div class="fko"><span>Вывести из боя за этот ход${F.k > 1 ? ` (${F.k} удара)` : ''}</span><b>≈${pct(F.ko)}</b></div>`;
   box.innerHTML = `<div class="fh"><b>${esc(a.name)} → ${esc(t.name)}</b><span class="cost">${cost} ОД</span></div>
     <div class="fm">d20 ${sgn(h.M)} против Стойкости ${h.D}<span class="dim">${mods.map(m => ' · ' + esc(m.l) + ' ' + sgn(m.v)).join('')}</span></div>
-    <div class="frs">${rows}</div>
-    <div class="ft"><span>Боль цели</span><span class="segs fcs">${segs}</span><span class="mono">${p0}/${L}</span></div>${ad}
+    <div class="frs">${rows}</div>${ad}
+    <div class="ft"><span>Боль цели</span><span class="segs fcs">${segs}</span><span class="mono">${p0}/${L}</span></div>${ko}
     ${touch ? `<div class="fbtn"><button type="button" class="primary" id="fcGo">${esc(a.name)} · ${cost} ОД</button><button type="button" id="fcNo">Отмена</button></div>` : '<div class="fn dim">Щелчок по цели — выполнить · Esc — отмена</div>'}`;
   /* место для карточки (в координатах окна): справа, слева, снизу или сверху от цели — где влезает и не закрывает ни цель, ни атакующего */
   box.hidden = false;
@@ -476,9 +546,19 @@ export function renderTurn() {
       : 'выберите действие';
   $('#rnd').innerHTML =
     `<span class="cap">Раунд</span><span class="rn">${S.round}</span><span class="ph ${S.over ? 'over' : S.editor ? 'ed' : S.phase}">${phase}</span>`;
+  const IC = {
+    undo: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 010 10h-3"/></svg>',
+    redo: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 000 10h3"/></svg>',
+    dice: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M12 22V12M21 7l-9 5-9-5"/></svg>',
+  };
+  $('#hist').innerHTML =
+    `<button type="button" class="icon sm" id="btnUndo" ${canUndo() ? '' : 'disabled'} title="Отменить последнее действие (Z)" aria-label="Отменить">${IC.undo}</button><button type="button" class="icon sm" id="btnRedo" ${canRedo() ? '' : 'disabled'} title="Вернуть отменённое (Shift+Z)" aria-label="Вернуть">${IC.redo}</button><button type="button" class="icon sm" id="btnDice" ${S.busy || S.editor ? 'disabled' : ''} title="Другие кубики: новое зерно с этого места. Зерно боя ${S.seed || '—'}" aria-label="Другие кубики">${IC.dice}</button>`;
   $('#endwrap').innerHTML = S.over
     ? '<button type="button" class="primary end" id="btnAgain">Начать заново</button>'
     : `<button type="button" class="primary end" id="btnEnd" ${!human || S.busy || S.editor ? 'disabled' : ''}>Завершить ход<kbd>Enter</kbd></button>`;
+  $('#btnUndo').onclick = undo;
+  $('#btnRedo').onclick = redo;
+  $('#btnDice').onclick = reroll;
   const who =
     u && !S.editor
       ? `<span class="who"><span class="gl ${u.side}">${esc(u.glyph)}</span><b>${esc(u.name)}</b></span>${u.down ? '' : `${painSegs(u, 'sm')}<span class="pips" title="Очки действий">${odPipsHTML(u)}</span>`}${u.side === S.phase && !u.down && !S.over && human ? '<span class="dim odn">неистраченные ОД уйдут на защиту</span>' : ''}`
@@ -497,8 +577,8 @@ export function renderTurn() {
     saveUI();
     render();
   };
-  if ($('#btnEnd')) $('#btnEnd').onclick = onEndTurn;
-  if ($('#btnAgain')) $('#btnAgain').onclick = restart;
+  if ($('#btnEnd')) $('#btnEnd').onclick = endTurnUI;
+  if ($('#btnAgain')) $('#btnAgain').onclick = () => restart();
   const party =
     (SET.party || [])
       .filter(k => T[k])
@@ -868,6 +948,96 @@ export function initUI2() {
     true,
   );
 }
+/* Лента событий раунда над полем: удары, «на пороге», выбывшие, падения. Нажатие — подсветить участников и показать бросок. */
+const lab = id => {
+  const u = byId(id);
+  if (!u) return '?';
+  const n = (u.name.match(/ (\d+)$/) || [])[1];
+  return esc(u.glyph) + (n ? n : '');
+};
+export function renderRibbon() {
+  const box = $('#ribbon');
+  if (!box) return;
+  const ents = [];
+  for (let i = S.log.length - 1; i >= 0 && ents.length < 14; i--) {
+    const e = S.log[i];
+    if (e.meta && ['atk', 'edge', 'down', 'dead', 'fall'].includes(e.meta.k)) ents.push([i, e]);
+  }
+  ents.reverse();
+  if (!ents.length) {
+    box.innerHTML = '<span class="rbe">Здесь появятся удары и события раунда</span>';
+    return;
+  }
+  let html = '',
+    lastR = null;
+  for (const [i, e] of ents) {
+    const m = e.meta;
+    if (m.round !== lastR) {
+      html += `<span class="rbr">Р${m.round}</span>`;
+      lastR = m.round;
+    }
+    let txt = '',
+      cls = '';
+    if (m.k === 'atk') {
+      const att = byId(m.att);
+      cls = (att ? att.side : '') + (m.t === 3 ? ' crit' : '') + (m.t === 0 ? ' miss' : '');
+      txt = `${lab(m.att)}<i>→</i>${lab(m.def)} <b>${m.t === 0 ? (m.parried ? 'отбил' : 'мимо') : m.dmg > 0 ? '+' + m.dmg : '0'}</b>${m.t === 3 ? ' крит' : ''}${m.wound ? ' · рана' : ''}`;
+    } else if (m.k === 'edge') {
+      cls = 'edge';
+      txt = `${lab(m.u)} на пороге`;
+    } else if (m.k === 'down') {
+      const u = byId(m.u);
+      cls = 'down';
+      txt = `${lab(m.u)} ${u && u.side === 'pc' ? 'без сознания' : 'выбыл'}`;
+    } else if (m.k === 'dead') {
+      cls = 'down';
+      txt = `✝ ${lab(m.u)}`;
+    } else if (m.k === 'fall') {
+      cls = 'edge';
+      txt = `${lab(m.u)} упал <b>+${m.n}</b>`;
+    }
+    html += `<button type="button" class="rbi ${cls}" data-i="${i}" aria-pressed="${S.rib === i}">${txt}</button>`;
+  }
+  box.innerHTML = html;
+  box.scrollLeft = box.scrollWidth;
+  box.querySelectorAll('[data-i]').forEach(b => {
+    b.onclick = () => {
+      const i = +b.dataset.i;
+      S.rib = S.rib === i ? null : i;
+      renderRibbon();
+      ribPop(S.rib == null ? null : S.log[i], b);
+    };
+  });
+  if (S.rib != null && !S.log[S.rib]) ribPop(null, null);
+}
+function ribPop(e, btn) {
+  const pop = $('#ribpop');
+  document.querySelectorAll('#toks .peek').forEach(d => d.classList.remove('peek'));
+  if (!e) {
+    pop.hidden = true;
+    S.rib = null;
+    return;
+  }
+  const m = e.meta;
+  for (const id of [m.att, m.def, m.u]) {
+    if (id == null) continue;
+    const d = $(`#toks [data-id="${id}"]`);
+    if (d) d.classList.add('peek');
+  }
+  pop.innerHTML = `<button type="button" class="x" aria-label="Закрыть">✕</button><div class="le ${e.cls} open">${e.html}</div>`;
+  const c = (document.querySelector('.center') as HTMLElement).getBoundingClientRect(),
+    r = btn.getBoundingClientRect();
+  pop.style.left = Math.max(8, Math.min(c.width - 340, r.left - c.left)) + 'px';
+  pop.style.top = r.bottom - c.top + 6 + 'px';
+  pop.hidden = false;
+  pop.querySelector('.x').onclick = () => {
+    S.rib = null;
+    ribPop(null, null);
+    renderRibbon();
+  };
+}
+
+/* Конец боя: итоги по бойцам, ключевые броски, переиграть с тем же зерном. */
 export function renderBanner() {
   const b = $('#banner');
   if (!S.over || S.editor) {
@@ -877,8 +1047,31 @@ export function renderBanner() {
   b.hidden = false;
   if (b.dataset.over !== S.over + S.round) {
     b.dataset.over = S.over + S.round;
-    b.innerHTML = `<div class="bx"><h2>${S.over === 'pc' ? 'Победа героев' : S.over === 'en' ? 'Герои пали' : 'Ничья'}</h2><p class="dim">Раунд ${S.round}. Весь ход боя — в журнале.</p><button type="button" class="primary" id="bnAgain">Начать заново</button> <button type="button" id="bnClose">Осмотреть поле</button></div>`;
-    $('#bnAgain').onclick = restart;
+    b.dataset.closed = '';
+    const T = S.tally || {};
+    const Z = { dealt: 0, taken: 0, atks: 0, hits: 0, crits: 0 };
+    const row = (u: Unit) => {
+      const t = T[u.id] || Z,
+        st = u.down ? downTxt(u) : onEdge(u) ? 'на пороге' : 'на ногах',
+        wn = Object.keys(u.wounds || {}).length;
+      return `<tr><td><span class="nm ${u.side}">${esc(u.name)}</span></td><td>${t.dealt}</td><td>${t.taken}</td><td>${t.hits}/${t.atks}</td><td>${t.crits}</td><td>${wn}</td><td class="${u.down ? 'dim' : ''}">${st}</td></tr>`;
+    };
+    const units = [...S.units].sort((x, y) => (x.side === y.side ? 0 : x.side === 'pc' ? -1 : 1));
+    const DG = ['промах', 'обычный', 'усиленный', 'крит'];
+    const km = (S.keyRolls || [])
+      .slice(0, 4)
+      .map(m => {
+        const a = byId(m.att),
+          d = byId(m.def);
+        return `<li><span class="dim">Р${m.round}</span> ${a ? `<span class="nm ${a.side}">${esc(a.name)}</span>` : '?'} → ${d ? `<span class="nm ${d.side}">${esc(d.name)}</span>` : '?'}: ${DG[m.t]}, <b>+${m.dmg} Боли</b>${m.wound ? ', рана' : ''} <span class="dim">(${m.total} против ${m.vs})</span></li>`;
+      })
+      .join('');
+    b.innerHTML = `<div class="bx sum"><h2>${S.over === 'pc' ? 'Победа героев' : S.over === 'en' ? 'Герои пали' : 'Ничья'}</h2><p class="dim">Раунд ${S.round} · зерно боя ${S.seed || '—'}</p>
+      <div class="sumw"><table class="sumt"><tr><th>Боец</th><th>Нанёс Боли</th><th>Получил</th><th>Попадания</th><th>Криты</th><th>Раны</th><th>Итог</th></tr>${units.map(row).join('')}</table></div>
+      ${km ? `<h3>Ключевые броски</h3><ul class="km">${km}</ul>` : ''}
+      <div class="bbtn"><button type="button" class="primary" id="bnSame" title="Те же кубики: если повторить те же действия, бой пойдёт так же">Переиграть с тем же зерном</button><button type="button" id="bnAgain">Новый бой</button><button type="button" id="bnClose">Осмотреть поле</button></div></div>`;
+    $('#bnSame').onclick = () => restart(true);
+    $('#bnAgain').onclick = () => restart();
     $('#bnClose').onclick = () => {
       b.hidden = true;
       b.dataset.closed = '1';
@@ -894,5 +1087,6 @@ export function render() {
   renderCard();
   renderActs();
   renderRoster();
+  renderRibbon();
   renderBanner();
 }

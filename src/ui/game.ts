@@ -4,16 +4,22 @@ import { initCombat, phaseLoop } from '../rules/turns';
 import { GEN, S, SIMULATING, buildState, parseScenario, setGEN, setS } from '../state';
 import { layoutBoard } from './board';
 import { zoomReset } from './zoom';
+import { clearHistory } from './history';
+import { newSeed, seedRng } from '../rng';
 import { hideTip } from './input';
 import { render } from './panels';
 import { closePrompt } from './prompt';
 import { $, CANCEL } from '../util';
 
-export function startGame(snap) {
+export function startGame(snap, seed?: number) {
   setGEN(GEN + 1);
+  clearHistory();
+  const sd = seed || newSeed();
+  seedRng(sd);
   closePrompt(null);
   hideTip();
   setS(buildState(snap));
+  S.seed = sd;
   $('#log').innerHTML = '';
   $('#fx').innerHTML = '';
   $('#banner').hidden = true;
@@ -39,7 +45,7 @@ export function loadScenario(id) {
   startGame(parseScenario(id));
 }
 
-export function restart() {
+export function restart(sameSeed = false) {
   if (SIMULATING) return;
-  startGame(S.initial);
+  startGame(S.initial, sameSeed ? S.seed : undefined);
 }

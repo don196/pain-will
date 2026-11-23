@@ -63,10 +63,13 @@ export async function beginPhase() {
     }
   for (const u of S.units) if (u.side === S.phase && u.down && u.ko && !u.dead) koTick(u);
   for (const u of alive(S.phase)) {
-    tickWounds(u);
+    const add = tickWounds(u, true);
     if (u.bleed > 0) {
       u.bleed--;
-      ev(`🩸 Кровотечение: ${uName(u)} +1 Боль, стаков осталось ${u.bleed}`);
+      ev(
+        `🩸 ${uName(u)}: кровотечение — +1 Боль${add ? `, открытые раны +${add} стак` : ''}, стаков осталось ${u.bleed}`,
+        { k: 'bleed', u: u.id, n: 1 },
+      );
       applyDamage(u, 1, null);
       if (S.over) return;
       if (u.down) continue;

@@ -7,14 +7,14 @@ import './debug';
 import { SCN } from './data/scenarios';
 import { isHuman } from './rules/actions';
 import { log } from './rules/log';
-import { onEndTurn } from './rules/turns';
 import { S, SIMULATING, alive } from './state';
 import { layoutBoard, loop, renderHL } from './ui/board';
 import { CTX, closeCtx } from './ui/ctxmenu';
 import { BAL_V, OLD_DATA, loadData, openData } from './ui/data-editor';
 import { toggleEditor } from './ui/editor';
 import { loadScenario, restart, startGame } from './ui/game';
-import { hideTip, notePointer, onCellClick, onCellHover } from './ui/input';
+import { endTurnUI, hideTip, notePointer, onCellClick, onCellHover } from './ui/input';
+import { redo, undo } from './ui/history';
 import { closeModal, openNotes, openRules } from './ui/modals';
 import { initUI2, render } from './ui/panels';
 import { openOdds, openSim } from './ui/sim';
@@ -28,7 +28,7 @@ function init(data) {
   $('#scn').onchange = e => {
     if (!SIMULATING) loadScenario(e.target.value);
   };
-  $('#btnRestart').onclick = restart;
+  $('#btnRestart').onclick = () => restart();
   $('#btnEditor').onclick = () => toggleEditor(!S.editor);
   $('#btnOdds').onclick = openOdds;
   $('#btnSim').onclick = openSim;
@@ -93,7 +93,13 @@ function init(data) {
     }
     if (!$('#modal').hidden || (e.target as HTMLElement).matches('input,select')) return;
     if (e.key === 'Enter') {
-      onEndTurn();
+      endTurnUI();
+      e.preventDefault();
+      return;
+    }
+    if ((e.key === 'z' || e.key === 'Z' || e.key === 'я' || e.key === 'Я') && !e.altKey) {
+      if (e.shiftKey) redo();
+      else undo();
       e.preventDefault();
       return;
     }

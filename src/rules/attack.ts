@@ -70,6 +70,7 @@ export async function resolveAttack(att: Unit, act: Action, target: Unit, opt: O
     log(
       `<div class="lh">${uName(att)} → ${uName(def)} · ${act.name}${opt.free ? ' <span class="dim">вне очереди</span>' : ''}</div><div class="lr">натуральные d20 <b>${r}</b>${th.v ? ` · порог промаха <b>${th.v}</b> (${th.src})` : ''}</div><div class="lo"><span class="chip fail">${cf ? 'критический провал' : 'промах'}</span></div>`,
       'atk',
+      { k: 'atk', att: att.id, def: def.id, act: act.name, dmg: 0, t: 0, r, total: r, vs: pas, miss: true },
     );
     view.fxLine(att, def, act.fx || (act.ranged ? 'bolt' : 'melee'));
     view.fxText(def, 'мимо', 'miss');
@@ -143,7 +144,7 @@ export async function resolveAttack(att: Unit, act: Action, target: Unit, opt: O
   sadFail(att, diff);
   let html = `<div class="lh">${uName(att)} → ${uName(def)} · ${act.name}${opt.part ? ` <span class="dim">бросок ${opt.part}</span>` : ''}${opt.free ? ' <span class="dim">вне очереди</span>' : ''}</div>`;
   html += `<div class="lr">d20 <b>${r}</b>${modsStr(mods)} = <b>${total}</b> против ${defTxt}</div>`;
-  html += `<div class="lo"><span class="chip ${deg.c}">разница ${sgn(diff)} · ${deg.txt}</span></div>` + reTxt;
+  html += `<div class="lo"><span class="chip ${deg.c}">разница ${sgn(diff)} · ${deg.txt}</span>{{PAIN}}</div>` + reTxt;
   if (hit && !opt.area && madSwap(att) && def.side !== att.side) {
     const al = friends(att)
       .filter(o => canTarget(att, act, o, null, true))
@@ -202,7 +203,24 @@ export async function resolveAttack(att: Unit, act: Action, target: Unit, opt: O
     parried: !!(v2def && v2def.ok),
     ranged: !!(act.ranged || act.magic),
   });
-  log(html, 'atk');
+  const pchip = hit
+    ? dmg > 0
+      ? `<span class="chip pain">+${dmg} Боли</span>`
+      : `<span class="chip minor">0 Боли</span>`
+    : '';
+  const meta: any = {
+    k: 'atk',
+    att: att.id,
+    def: def.id,
+    act: act.name,
+    dmg: hit ? dmg : 0,
+    t: deg.t,
+    r,
+    total,
+    vs: defVal,
+    parried: !!(v2def && v2def.ok),
+  };
+  log(html.replace('{{PAIN}}', pchip), 'atk', meta);
   view.fxLine(att, def, act.fx || (act.ranged ? 'bolt' : 'melee'));
   if (!hit) view.fxText(def, adUsed ? 'отбил' : 'мимо', 'miss');
   S.lastAtk = {
@@ -219,6 +237,7 @@ export async function resolveAttack(att: Unit, act: Action, target: Unit, opt: O
         ? cauterize(def, act.cauter === 'head' ? 'head' : null)
         : null
       : painWound(att, act, def, deg, pinfo);
+    if (hb === 'wound') meta.wound = true;
     att._striking = true;
     applyDamage(def, dmg, att);
     att._striking = false;

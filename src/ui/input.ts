@@ -10,17 +10,48 @@ import { adLeft, canActiveDefend, resist } from '../rules/reactions';
 import { activeMods, hitCalc, speedOf } from '../rules/stats';
 import { openWounds } from '../rules/wounds';
 import { SET } from '../settings';
-import { GEN, S, SIMULATING, selUnit } from '../state';
+import { GEN, S, SIMULATING, alive, selUnit } from '../state';
+import { onEndTurn } from '../rules/turns';
+import { isHuman } from '../rules/actions';
+import { askChoice } from './prompt';
 import { renderHL } from './board';
 import { closeCtx, openCtx } from './ctxmenu';
 import { editorClick } from './editor';
 import { FC_KINDS, actState, effAct, render, zocPreview } from './panels';
+import { remember } from './history';
 import { armorTxt, hpTxt } from './status';
 import { $, CANCEL, cheb, esc, fmtN, key, pct, sgn, sum } from '../util';
 /* Чем нажали последний раз: пальцем — удар по цели сначала показывает карточку прогноза. */
 export let lastPtr = 'mouse';
 export function notePointer(e) {
   lastPtr = e.pointerType || 'mouse';
+}
+/* Завершить ход: если у кого-то из героев остались ОД и есть кого атаковать — один раз спросить. */
+export async function endTurnUI() {
+  if (!S || S.busy || S.over || S.editor || !isHuman(S.phase)) return;
+  const mark = S.round + ':' + S.phaseIdx;
+  if (S.warned !== mark) {
+    const idle = alive(S.phase).filter(
+      u =>
+        u.od > 0 &&
+        !u.skipped &&
+        u.acts.some(id => A[id] && ['attack', 'pair'].includes(A[id].kind) && actState(u, id).ok),
+    );
+    if (idle.length) {
+      S.warned = mark;
+      const go = await askChoice(
+        'Завершить ход?',
+        `<p>${idle.map(u => `<b>${esc(u.name)}</b> — ${u.od} ОД`).join(', ')}: ${idle.length > 1 ? 'есть' : 'есть'} кого атаковать. Неистраченные ОД уйдут на защиту до следующего хода.</p>`,
+        [
+          { label: 'Завершить ход', v: true, sub: 'Enter' },
+          { label: 'Вернуться к ходу', v: false, sub: 'Esc' },
+        ],
+      );
+      if (!go) return;
+    }
+  }
+  remember();
+  await onEndTurn();
 }
 export const IMMEDIATE = ['self', 'circle', 'escape', 'aura', 'breakbind', 'unbind', 'standup', 'prep', 'unlasso'];
 export function onAction(id) {
@@ -40,6 +71,7 @@ export function onAction(id) {
   render();
 }
 export async function run(fn) {
+  remember();
   closeCtx();
   S.busy = true;
   S.act = null;

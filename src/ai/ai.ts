@@ -68,7 +68,7 @@ export async function aiTurn(u: Unit) {
   } finally {
     u.od += keep;
   }
-  if (keep && !u.down) log(`${esc(u.name)}: ${keep} ОД остаётся на защиту`, 'mv');
+  if (keep && !u.down) log(`${esc(u.name)}: ${keep} ОД остаётся на защиту`, 'mv note');
 }
 export async function aiStep(u: Unit) {
   const foes = hostiles(u);
