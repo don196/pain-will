@@ -355,7 +355,8 @@ export function v2DefOptions(def: Unit, att: Unit, act: Action, opt) {
     !tplFlag(def,'noParry') &&
     meleeInHand(def) &&
     partSt(def, 'armR') < 3 &&
-    lassoPart(def) !== 'armR'
+    lassoPart(def) !== 'armR' &&
+    def.grabbedArm !== 'armR'
   ) {
     const m = [
       {
