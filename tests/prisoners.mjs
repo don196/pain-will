@@ -38,9 +38,11 @@ try {
     const c=[...P.bfs(u,{max:1}).entries()].find(([k,v])=>v.d===1);
     const [x,y]=c[0].split(',').map(Number);
     const before={x:u.x,y:u.y};
+    const odBefore=u.od;
     const ok=await P.performMove(u,x,y,'prisonBackstep');
-    return {ok,od:u.od,d:P.hd(before.x,before.y,u.x,u.y),second:P.okAct(u,'prisonBackstep')};
+    return {ok,odBefore,od:u.od,down:u.down,over:P.S.over,prone:u.prone,pos:[u.x,u.y],d:P.hd(before.x,before.y,u.x,u.y),second:P.okAct(u,'prisonBackstep'),events:P.S.log?.slice(-3)};
   });
+  console.log('Stepback diagnostic',JSON.stringify(stepback));
   assert.equal(stepback.ok,true);
   assert.equal(stepback.od,2);
   assert.equal(stepback.d,1);
