@@ -189,6 +189,11 @@ export function actGroup(id, a) {
   if ((ATTACK_KINDS.includes(a.kind) || a.kind === 'pair') && !a.magic) return 1;
   return 2;
 }
+/* Подсказка кнопки действия: в свёрнутой панели вторая строка скрыта. */
+function actTitle(u: Unit, id, a, st, ctrl) {
+  const m = !st.ok && ctrl && st.why ? st.why : actMeta(u, id, a);
+  return (a.name + (m ? ' — ' + String(m).replace(/<[^>]+>/g, '') : '') + (a.hint ? '. ' + a.hint : '')).trim();
+}
 export function actMeta(u: Unit, id, a) {
   const left = a.ammo ? ' · ×' + ((u.ammo || {})[id] || 0) : '';
   if (['attack', 'pair'].includes(a.kind) && a.fixed == null && (a.K || a.base != null))
@@ -684,7 +689,7 @@ export function renderActs() {
     const k = numbered && ctrl && st.ok && n < 9 ? ++n : 0;
     const tp = numbered && top < 3 ? ++top : 0;
     const sel = S.act === id || (!S.act && id === 'move' && dflt);
-    return `<button type="button" class="act${tp ? ' top' : ''}${sel ? ' sel' : ''}${!S.act && id === 'move' && dflt ? ' dflt' : ''}${st.ok ? '' : ' off'}${a.pending ? ' pd' : ''}" data-act="${id}"${k ? ` data-key="${k}"` : ''} aria-disabled="${st.ok ? 'false' : 'true'}"><span class="n">${esc(a.name)}</span><span class="m">${!st.ok && ctrl && st.why ? `<em>${st.why}</em>` : actMeta(u, id, a)}</span><span class="c" title="${cost} ОД">${cost ? '<b></b>'.repeat(cost) : '<b class="z"></b>'}</span>${k ? `<kbd>${k}</kbd>` : ''}</button>`;
+    return `<button type="button" class="act${tp ? ' top' : ''}${sel ? ' sel' : ''}${!S.act && id === 'move' && dflt ? ' dflt' : ''}${st.ok ? '' : ' off'}${a.pending ? ' pd' : ''}" data-act="${id}" title="${esc(actTitle(u, id, a, st, ctrl))}"${k ? ` data-key="${k}"` : ''} aria-disabled="${st.ok ? 'false' : 'true'}"><span class="n">${esc(a.name)}</span><span class="m">${!st.ok && ctrl && st.why ? `<em>${st.why}</em>` : actMeta(u, id, a)}</span><span class="c" title="${cost} ОД">${cost ? '<b></b>'.repeat(cost) : '<b class="z"></b>'}</span>${k ? `<kbd>${k}</kbd>` : ''}</button>`;
   };
   let html = '<div class="agroups">';
   [0, 1, 2, 4, 3].forEach(gi => {

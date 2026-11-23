@@ -808,3 +808,32 @@ details.sec summary{cursor:pointer;font:600 10.5px var(--cond);letter-spacing:.1
 .tok3.sel .bar.segs.zero,.tok3.hov .bar.segs.zero,.tok3.peek .bar.segs.zero{opacity:.85}
 .tok3.s2 .bar,.tok3.s2 .pn{margin-top:calc(var(--cell)*-.66)}
 .tok3.s2 .fxs{margin-bottom:calc(var(--cell)*.66)}
+
+/* ===== 4.4: компьютер — панель действий одной строкой, поле выше ===== */
+@media (min-width:701px){
+  .dock{position:relative}
+  .dock .handle{display:block;position:absolute;left:50%;top:-1px;transform:translateX(-50%);width:64px;height:16px;padding:0;border:0;background:none;cursor:pointer;z-index:2}
+  .dock .handle::before{content:"";position:absolute;left:14px;right:14px;top:5px;height:4px;border-radius:2px;background:#3a424e;transition:background .15s}
+  .dock .handle:hover::before,.dock .handle:focus-visible::before{background:var(--flame)}
+  body.dock-min .dock{padding:8px 12px 8px}
+  body.dock-min .dockhd{flex-wrap:nowrap;margin-bottom:6px;min-height:26px}
+  body.dock-min .dockhd .pr{flex:1;min-width:0;margin-left:auto;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+  body.dock-min .dockhd .odn{display:none}
+  body.dock-min .agroups{display:flex;flex-wrap:nowrap;gap:6px;overflow-x:auto;overflow-y:hidden;padding-bottom:3px;scrollbar-width:thin}
+  body.dock-min .ag,body.dock-min .agb{display:contents}
+  body.dock-min .agn{display:none}
+  body.dock-min .act{flex:none;min-width:0;max-width:none;min-height:38px;padding:6px 28px 6px 10px;white-space:nowrap}
+  body.dock-min .act .m{display:none}
+  body.dock-min .act .c{top:auto;bottom:6px;transform:none;right:8px}
+  body.dock-min .act kbd{top:3px;right:4px;font-size:9.5px;line-height:1;padding:1px 3px}
+  body.dock-min .act.more{padding-right:12px}
+  body.dock-min .agoff,body.dock-min .hint,body.dock-min .dockft{display:none}
+}
+/* узкое окно компьютера: лента бойцов остаётся в одной строке с раундом и кнопкой хода — поле получает ещё строку */
+@media (min-width:701px) and (max-width:1180px){
+  .turnbar{flex-wrap:nowrap;padding:6px 12px}
+  #roster{order:0;flex:1 1 auto;flex-basis:auto}
+  .uc .nm{max-width:72px}
+}
+/* пока событий нет, лента не занимает место — поле выше */
+@media (min-width:701px){.ribbon:has(.rbe){display:none}}

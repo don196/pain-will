@@ -200,6 +200,19 @@ try {
 
     }
 
+    if (vp.name === 'компьютер') {
+      // Панель действий свёрнута в одну строку, поле получает высоту; разворачивается по кнопке.
+      const dk = await page.evaluate(async () => {
+        P.loadScenario('dummies'); await new Promise(r => setTimeout(r, 300));
+        const tops = () => new Set([...document.querySelectorAll('#acts .agroups > .ag .act')].map(b => b.offsetTop)).size;
+        const r = { min: document.body.classList.contains('dock-min'), rows: tops(), wrap: document.querySelector('#wrap').offsetHeight, dock: document.querySelector('#dock').offsetHeight };
+        document.querySelector('#dockTog').click(); await new Promise(r => setTimeout(r, 200));
+        r.full = !document.body.classList.contains('dock-min') && tops() > 1;
+        document.querySelector('#dockTog').click();
+        return r;
+      });
+      ok(dk.min && dk.rows === 1 && dk.wrap > dk.dock * 3 && dk.full, 'компьютер: действия одной строкой, поле выше, разворот по кнопке', JSON.stringify(dk));
+    }
     if (vp.name === 'телефон') {
       const ph = await page.evaluate(() => ({ dock: getComputedStyle(document.querySelector('#dock')).position, tr: document.querySelector('#board').style.transform }));
       ok(ph.dock === 'fixed' && /scale/.test(ph.tr), 'телефон: действия в нижней панели, поле масштабируется', JSON.stringify(ph));
