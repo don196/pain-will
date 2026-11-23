@@ -187,8 +187,22 @@ export function wantRot() {
   if (m === 'off' || !S) return false;
   return window.innerWidth <= 700 && window.innerHeight > window.innerWidth && S.w > S.h;
 }
+/* Компьютер в одну колонку (узкое окно): поле занимает экран до панели действий. */
+function fitWrapHeight() {
+  const wrap = $('#wrap');
+  if (!wrap) return;
+  const iw = window.innerWidth;
+  if (iw <= 700 || iw > 1180) {
+    wrap.style.height = '';
+    return;
+  }
+  const top = wrap.getBoundingClientRect().top + window.scrollY,
+    dock = $('#dock') ? $('#dock').offsetHeight : 0;
+  wrap.style.height = Math.max(340, Math.round(window.innerHeight - top - dock - 22)) + 'px';
+}
 export function layoutBoard() {
   setRot(wantRot());
+  fitWrapHeight();
   CELL = computeCell();
   document.documentElement.style.setProperty('--cell', CELL + 'px');
   const W = boardW(),
