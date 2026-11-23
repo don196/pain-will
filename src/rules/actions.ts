@@ -398,12 +398,12 @@ export async function perform(u: Unit, id, tgt?) {
     u.mustAttack = false;
     u._atk = true;
   }
-  if (u.side === S.phase && (ATTACK_KINDS.includes(a.kind) || ['pair', 'push', 'curse2'].includes(a.kind))) {
+  if (u.side === S.phase && (ATTACK_KINDS.includes(a.kind) || ['pair', 'push', 'curse2', 'prisonGrab', 'prisonCircle'].includes(a.kind))) {
     await v2PrepCheck(u);
     const lost =
       u.down ||
       S.over ||
-      (tgt && tgt.id && ['attack', 'push', 'curse2'].includes(a.kind) && (tgt.down || !canTarget(u, a, tgt)));
+      (tgt && tgt.id && ['attack', 'push', 'curse2', 'prisonGrab'].includes(a.kind) && (tgt.down || !canTarget(u, a, tgt)));
     if (lost) {
       if (!u.down && !S.over) ev(`<span class="dim">${esc(u.name)}: действие «${esc(a.name)}» сорвано</span>`);
       if (a.needLoad) u.loaded = false;
