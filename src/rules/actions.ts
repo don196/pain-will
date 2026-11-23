@@ -1,3 +1,12 @@
+import {
+  canTerrainAct,
+  coverBetween,
+  hasLocalCover,
+  hasTerrain,
+  objectPush,
+  objectStrike,
+  terrainStep,
+} from './terrain';
 import type { Action, Opts, Unit } from '../types';
 import { A, ATTACK_KINDS } from '../data/actions';
 import { DIS, DISP, DIS_ICON } from '../data/disorders';
@@ -51,7 +60,9 @@ export function isHuman(side) {
   if (S.sim) return false;
   return side === 'pc' || SET.enemyCtrl === 'manual';
 }
-export const BUILTIN = ['swap', 'door', 'unlasso', 'revive'];
+export const BUILTIN = ['swap', 'door', 'unlasso', 'revive', 'objectStrike', 'objectPush', 'coverFull'];
+/* Предметы окружения — действия героев (как в 4.5). */
+export const TERR_ACTS = ['objectStrike', 'objectPush', 'coverFull'];
 export function weaponsOf(o) {
   const out = [];
   for (const id of o.acts || []) {
@@ -99,6 +110,8 @@ export function okAct(u: Unit, id, raw?) {
   if (!reqOk(u, id)) return false;
   if (a.cd && S.round < ((u.cd || {})[id] || 0)) return false;
   if (a.kind === 'revive' && u.side !== 'pc') return false;
+  if (TERR_ACTS.includes(id) && (u.side !== 'pc' || !hasTerrain())) return false;
+  if (id === 'coverFull' && !hasLocalCover(u)) return false;
   if (onEdge(u) && !edgeOk(id, a)) return false;
   if (a.speech && hasEff(u, 'mute')) return false;
   if (a.kind === 'standup' && (!u.prone || (partSt(u, 'legL') >= 3 && partSt(u, 'legR') >= 3))) return false;
@@ -161,6 +174,7 @@ export function canTarget0(u: Unit, act: Action, t, from, friendly?) {
   if (t && t.down && act.kind === 'bandage' && t.ko && !t.dead)
     return t.side === u.side && cheb(from, t) === 1 && adjOk(from, t) && needsCare(t);
   if (!t || t.down) return false;
+  if (act.ranged && t.covered && coverBetween(from, t)) return false;
   const d = cheb(from, t);
   if (act.kind === 'bandage') return t.side === u.side && (d === 0 || (d === 1 && adjOk(from, t))) && needsCare(t);
   if (t.id === u.id) return false;
@@ -206,6 +220,7 @@ export function validCell(u: Unit, a, x, y) {
     if (d.open) return !unitAt(x, y);
     return !d.locked;
   }
+  if (a.kind === 'objectStrike' || a.kind === 'objectPush') return canTerrainAct(u, a.kind, { x, y });
   return false;
 }
 export function validThrow(u: Unit, a, c) {
@@ -307,6 +322,8 @@ export function hasTargets(u: Unit, id) {
     case 'trap':
       return trapCells(u).length > 0;
     case 'door':
+    case 'objectStrike':
+    case 'objectPush':
       return ringCells(u).some(c => validCell(u, a, c.x, c.y));
     default:
       return true;
@@ -326,6 +343,9 @@ export async function perform(u: Unit, id, tgt?) {
     return false;
   if (a.kind === 'flash' && !(tgt && validFlash(u, tgt))) return false;
   if (a.kind === 'trap' && !(tgt && validTrap(u, tgt))) return false;
+  if ((a.kind === 'objectStrike' || a.kind === 'objectPush') && !(tgt && validCell(u, a, tgt.x, tgt.y))) return false;
+  /* полное укрытие держится до следующего своего действия */
+  if (u.covered && id !== 'coverFull') u.covered = false;
   if (a.kind === 'move') return performMove(u, tgt.x, tgt.y);
   if (u.guilt && u.guilt.stage === 'band' && id === 'bandage' && tgt && tgt.id !== u.guilt.id) return false;
   if (u.mustAttack && disOf(u, 'aggr') === 2 && a.kind === 'attack' && !a.magic && u.side === S.phase) {
@@ -505,11 +525,20 @@ export async function perform(u: Unit, id, tgt?) {
     case 'door':
       doDoor(u, tgt);
       break;
+    case 'objectStrike':
+      objectStrike(u, tgt);
+      break;
+    case 'objectPush':
+      objectPush(u, tgt);
+      break;
     case 'escape':
       await doEscape(u);
       break;
     case 'self':
-      if (id === 'magsight') {
+      if (id === 'coverFull') {
+        u.covered = true;
+        ev(`🛡 ${uName(u)} полностью укрылся до следующего своего действия: стрелять в него сквозь укрытие нельзя`);
+      } else if (id === 'magsight') {
         let n = 3;
         const t = spellRoll(u, a);
         if (!t) {
@@ -570,6 +599,7 @@ export async function performMove(u: Unit, x, y) {
   const cost = v.d <= sp ? 1 : 2;
   if (cost > u.od) return false;
   interrupt(u, 'добровольное перемещение');
+  if (u.covered) u.covered = false;
   u.od -= cost;
   u._acted = true;
   log(`${esc(u.name)}: перемещение на ${v.d} кл. (${cost} ОД)`, 'mv');
@@ -584,10 +614,13 @@ export async function walk(u: Unit, path, opt: Opts = {}) {
   for (const [x, y] of path) {
     if (SET.zoc && !opt.noZoc && !(await zocStep(u, x, y, hit))) break;
     if (u.down || (u.prone && path.length > 1 && (u.x !== x || u.y !== y) && hd(u.x, u.y, x, y) !== 1)) break;
+    const pr0 = u.prone;
     u.x = x;
     u.y = y;
+    terrainStep(u, x, y);
     view.renderTokens();
     await sleep(150);
+    if (u.down || S.over || (u.prone && !pr0)) break;
     if (trapCheck(u)) break;
     const wasProne = u.prone;
     await v2PrepCheck(u);

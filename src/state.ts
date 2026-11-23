@@ -2,6 +2,7 @@ import type { GameState, Side, Unit } from './types';
 import { A } from './data/actions';
 import { CHAR_TPL, T, tplOf } from './data/fighters';
 import { SCN } from './data/scenarios';
+import { TERRAIN } from './data/terrain';
 import { weaponsOf } from './rules/actions';
 import { footCells } from './rules/geometry';
 import { SET } from './settings';
@@ -208,6 +209,40 @@ export function parseScenario(id) {
       }
     }),
   );
+  /* Слои 4.5: прямоугольники [x1,y1,x2,y2] и клетки [x,y]; последний слой побеждает, type 'clear' — сухой островок. */
+  const cellsFor = layer => {
+    const out = [];
+    if (layer.rect) {
+      const [x1, y1, x2, y2] = layer.rect;
+      for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) out.push([x, y]);
+    }
+    if (layer.cells) out.push(...layer.cells);
+    return out.filter(([x, y]) => x >= 0 && y >= 0 && x < W && y < H && !wset.has(key(x, y)));
+  };
+  for (const layer of sc.heightLayers || [])
+    for (const [x, y] of cellsFor(layer)) {
+      if (layer.level) hgt[key(x, y)] = layer.level;
+      else delete hgt[key(x, y)];
+    }
+  const terrain = {};
+  for (const layer of sc.terrainLayers || [])
+    for (const [x, y] of cellsFor(layer)) {
+      const k = key(x, y);
+      if (layer.type === 'clear') {
+        delete terrain[k];
+        continue;
+      }
+      if (layer.type === 'stairs') {
+        stairs[k] = true;
+        continue;
+      }
+      const def = TERRAIN[layer.type];
+      if (!def) continue;
+      /* сплошные предметы не появляются под бойцом */
+      if (def.solid && list.some(u => footCells(u.x, u.y, u.size || 1).some(p => p.x === x && p.y === y))) continue;
+      terrain[k] = { type: layer.type, hp: def.hp == null ? null : def.hp };
+      if (layer.type === 'collapse') terrain[k].depth = layer.depth || 2;
+    }
   return {
     scn: id,
     w: W,
@@ -218,6 +253,7 @@ export function parseScenario(id) {
     bars,
     hgt,
     stairs,
+    terrain,
     units: list,
   };
 }
@@ -237,6 +273,7 @@ export function buildState(snap): GameState {
     bars: JSON.parse(JSON.stringify(snap.bars || {})),
     hgt: { ...(snap.hgt || {}) },
     stairs: { ...(snap.stairs || {}) },
+    terrain: JSON.parse(JSON.stringify(snap.terrain || {})),
     units,
     round: 1,
     phaseIdx: 0,
@@ -310,6 +347,7 @@ export function snapshotNow() {
     bars: JSON.parse(JSON.stringify(S.bars)),
     hgt: { ...(S.hgt || {}) },
     stairs: { ...(S.stairs || {}) },
+    terrain: JSON.parse(JSON.stringify(S.terrain || {})),
     units,
   };
 }

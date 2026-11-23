@@ -1,6 +1,8 @@
+import { TERRAIN, TERRAIN_TOOLS } from '../data/terrain';
+import { placeTerr } from '../rules/terrain';
 import { T } from '../data/fighters';
 import { footFree, inFoot, torchAt, unitAt } from '../rules/geometry';
-import { H_MAX } from '../rules/height';
+import { H_MAX, H_MIN } from '../rules/height';
 import { log } from '../rules/log';
 import { GEN, S, SIMULATING, UID, byId, mkUnit, nameUnit, setGEN, setUID, snapshotNow } from '../state';
 import { drawFloor, drawLight } from './board';
@@ -24,6 +26,8 @@ export function renderEditor(box) {
     ['hup', 'Высота +1'],
     ['hdown', 'Высота −1'],
     ['stairs', 'Лестница: поставить / убрать'],
+    ...TERRAIN_TOOLS.map(([t, l]) => ['t:' + t, l]),
+    ['terase', 'Убрать предмет или воду'],
   ];
   box.innerHTML = `<div class="panel"><h2 class="ph">Редактор поля</h2>
     <div class="ed-tools">${tools.map(([k, l]) => `<button type="button" data-tool="${k}" class="${S.etool === k ? 'on' : ''}">${l}</button>`).join('')}</div>
@@ -70,6 +74,7 @@ export function renderEditor(box) {
     S.torches = [];
     S.hgt = {};
     S.stairs = {};
+    S.terrain = {};
     S.lv = (S.lv || 0) + 1;
     drawFloor();
     drawLight(performance.now());
@@ -84,8 +89,27 @@ export function editorClick(x, y) {
     S.walls.delete(k);
     delete S.doors[k];
     delete S.bars[k];
+    if (S.terrain) delete S.terrain[k];
     S.torches = S.torches.filter(t => !(t.x === x && t.y === y));
   };
+  /* окружение 4.5: сплошной предмет не ставится под бойца */
+  if (S.etool.startsWith('t:') || S.etool === 'terase') {
+    if (S.etool === 'terase') {
+      if (S.terrain) delete S.terrain[k];
+    } else {
+      const type = S.etool.slice(2),
+        def = TERRAIN[type];
+      if (def && !(def.solid && u)) {
+        clearCell();
+        placeTerr(x, y, type);
+      }
+    }
+    S.lv = (S.lv || 0) + 1;
+    drawFloor();
+    drawLight(performance.now());
+    render();
+    return;
+  }
   switch (S.etool) {
     case 'unit': {
       if (u) {
@@ -136,7 +160,7 @@ export function editorClick(x, y) {
     case 'hdown': {
       if (S.walls.has(k) || S.doors[k] || S.bars[k]) break;
       S.hgt = S.hgt || {};
-      const v = Math.max(0, Math.min(H_MAX, (S.hgt[k] || 0) + (S.etool === 'hup' ? 1 : -1)));
+      const v = Math.max(H_MIN, Math.min(H_MAX, (S.hgt[k] || 0) + (S.etool === 'hup' ? 1 : -1)));
       if (v) S.hgt[k] = v;
       else delete S.hgt[k];
       break;

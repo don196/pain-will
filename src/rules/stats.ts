@@ -1,3 +1,4 @@
+import { waterLevel } from './terrain';
 import type { Action, Opts, Unit } from '../types';
 import { A } from '../data/actions';
 import { DIS, DISP } from '../data/disorders';
@@ -12,7 +13,7 @@ import { selfHateHit } from './magic';
 import { painInfo, wClass } from './pain';
 import { SET } from '../settings';
 import { ap3Degree, missThr, resist } from './reactions';
-import { friends, hostiles } from '../state';
+import { S, friends, hostiles } from '../state';
 import { cheb, sum } from '../util';
 export const getEff = (u: Unit, t) => u.effects.find(e => e.type === t);
 export const hasEff = (u: Unit, t) => !!getEff(u, t);
@@ -246,6 +247,11 @@ export function atkMods(u: Unit, act: Action, t) {
     m.push({
       l: 'сверху',
       v: hm,
+    });
+  if (S.terrain && waterLevel(u) === 2 && !act.speech)
+    m.push({
+      l: 'глубокая вода',
+      v: -8,
     });
   v2AtkMods(u, act, m, t);
   return m;

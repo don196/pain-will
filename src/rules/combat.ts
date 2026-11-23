@@ -1,3 +1,4 @@
+import { igniteTerr, inWater, terrainStep, waterLevel } from './terrain';
 import type { Action, Opts, Unit } from '../types';
 import { A } from '../data/actions';
 import { T, tplOf } from '../data/fighters';
@@ -95,15 +96,14 @@ export function fall(u: Unit, h) {
     return;
   }
   const n = fallPain(h);
-  ev(`⤵ ${uName(u)} падает с уступа высотой ${h}: ${n} Боли сквозь броню${h >= 3 ? ', рана' : ''}`, {
+  ev(`⤵ ${uName(u)} падает с высоты ${h}: ${n} Боли сквозь броню${h >= 3 ? ', рана' : ''}`, {
     k: 'fall',
     u: u.id,
     n,
   });
   setProne(u, 'падение');
   applyDamage(u, n, null);
-  if (h >= 3 && !u.down) addWound(u, pick(AREAS));
-  if (h >= 5 && !u.down) addWound(u, pick(AREAS));
+  if (h >= 3 && !u.down) addWound(u, pick(AREAS), { deg: h >= 5 ? 3 : h >= 4 ? 2 : 1 });
 }
 export function addStrong(u: Unit, type) {
   u.effects = u.effects.filter(e => e.type !== type);
@@ -120,6 +120,7 @@ export function addStrong(u: Unit, type) {
 export function addSt(u: Unit, k, n, why) {
   if (!u || u.down || !(n > 0)) return;
   if (k === 'unst' && (u.prone || sz(u) > 1)) return;
+  if (k === 'heat' && inWater(u)) return;
   u.st = u.st || {};
   u.st[k] = (u.st[k] || 0) + n;
   ev(`${ST_ICON[k]} ${uName(u)}: ${ST_RU[k]} +${n}${why ? ' (' + why + ')' : ''}, стаков ${u.st[k]}`);
@@ -277,6 +278,11 @@ export function v2DefOptions(def: Unit, att: Unit, act: Action, opt) {
         l: 'темнота',
         v: -dp,
       });
+    if (S.terrain) {
+      const wl = waterLevel(def);
+      if (wl === 2) m.push({ l: 'глубокая вода', v: -8 });
+      else if (wl === 1 && m.some(x => x.l === 'Ловкость')) m.push({ l: 'мелкая вода', v: -3 });
+    }
     return m;
   };
   const m = [
@@ -541,6 +547,7 @@ export async function v2OnHit(att: Unit, act: Action, def: Unit, deg, dmg, x, hb
   }
   if (def.down) return;
   if (act.heat) addSt(def, 'heat', act.heat * dbl, act.name);
+  if (act.ptyp === 'fire') igniteTerr(def.x, def.y);
   const ck = act.coughDeg ? act.coughDeg[deg.t] || 0 : act.cough;
   if (ck && !def.down) addSt(def, 'cough', ck * dbl, act.name);
   if (def.down) return;
@@ -672,6 +679,8 @@ export async function shove(u: Unit, t, n) {
         fall(t, kb.fall);
         break;
       }
+      terrainStep(t, t.x, t.y, { forced: true });
+      if (t.down || S.over) break;
       if (trapCheck(t)) break;
       continue;
     }

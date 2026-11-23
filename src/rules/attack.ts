@@ -1,3 +1,4 @@
+import { terrainStep } from './terrain';
 import type { Action, Opts, Unit } from '../types';
 import { DIS, DISP, DIS_ICON } from '../data/disorders';
 import { canTarget } from './actions';
@@ -358,6 +359,8 @@ export function applyKnock(def: Unit, kb) {
       fall(def, kb.fall);
       return;
     }
+    terrainStep(def, def.x, def.y, { forced: true });
+    if (def.down) return;
     addSt(def, 'unst', 1, 'отбрасывание');
     lassoSnap(def);
     return;

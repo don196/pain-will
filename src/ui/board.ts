@@ -29,6 +29,7 @@ import { UI, effAct, renderForecast, zocPreview } from './panels';
 import { fxChips, fxNames, odPipsHTML } from './status';
 import { limOf, onEdge, painOf } from '../rules/pain';
 import { sfx, syncDrone } from './sound';
+import { drawAllStairsFlat, drawHeightEdges, drawTerrainFlat, drawTerrainObj, floorTone } from './terrain-draw';
 import { $, REDUCED, cheb, el, esc, hash, hd, key, pct, sz, unkey } from '../util';
 export let CELL = 46;
 export function appendLog(e) {
@@ -90,9 +91,11 @@ export function cellOrder() {
 }
 /* Центр верхней грани клетки: поднятая клетка рисуется выше на LVL за уровень. */
 export const LVL = () => CELL * 0.34;
+/* Вид высот: 'flat' — как в 4.5, верх площадки на своём гексе; 'raised' — площадки приподняты. */
+export const RAISED = () => UI.hview === 'raised';
 export function hc(x, y) {
   const c = hc0(x, y);
-  if (S && S.hgt) c.y -= hAt(x, y) * LVL();
+  if (S && S.hgt && RAISED()) c.y -= Math.max(0, hAt(x, y)) * LVL();
   return c;
 }
 /* Подпись высот: если поменялась, кликабельные гексы пересобираются. */
@@ -205,7 +208,7 @@ export function syncHexes() {
   hl.setAttribute('width', W);
   hl.setAttribute('height', H);
   hl.setAttribute('viewBox', `0 0 ${W} ${H}`);
-  const v = CELL + 'x' + S.w + 'x' + S.h + 'x' + hgtSig() + (ROT ? 'r' : '');
+  const v = CELL + 'x' + S.w + 'x' + S.h + 'x' + hgtSig() + (ROT ? 'r' : '') + (RAISED() ? 'R' : '');
   if (hl._v !== v) {
     hl._v = v;
     hl.innerHTML = '';
@@ -248,7 +251,7 @@ export function wallH(x, y) {
   const cy = hc0(x, y).y;
   const behind = NB(y).some(([dx, dy]) => floorAt(x + dx, y + dy) && hc0(x + dx, y + dy).y < cy - CELL * 0.1);
   let base = behind ? CELL * 0.2 : CELL * 0.8;
-  if (hasHeights()) {
+  if (hasHeights() && RAISED()) {
     let m = 0;
     for (const [dx, dy] of NB(y)) if (floorAt(x + dx, y + dy)) m = Math.max(m, hAt(x + dx, y + dy));
     if (m) base = Math.max(base, m * LVL() + CELL * 0.2);
@@ -370,14 +373,15 @@ export function drawFloor() {
     W = boardW(),
     H = boardH();
   g.clearRect(0, 0, W, H);
+  const flat = !RAISED();
   for (let y = 0; y < S.h; y++)
     for (let x = 0; x < S.w; x++) {
-      if (S.walls.has(key(x, y)) || hAt(x, y) > 0) continue;
+      if (S.walls.has(key(x, y)) || (!flat && hAt(x, y) > 0)) continue;
       const h = hash(x, y),
         c = hc(x, y),
         v = (58 + h * 20) | 0;
       hexPath(g, c.x, c.y, 1.01);
-      g.fillStyle = `rgb(${v - 10},${v - 4},${v + 6})`;
+      g.fillStyle = floorTone(x, y, v);
       g.fill();
       hexPath(g, c.x, c.y, 1);
       g.strokeStyle = 'rgba(0,0,0,.5)';
@@ -395,8 +399,12 @@ export function drawFloor() {
         g.stroke();
       }
     }
-  for (let y = 0; y < S.h; y++)
-    for (let x = 0; x < S.w; x++) if (isStairs(x, y) && !hAt(x, y) && floorAt(x, y)) drawFlatStairs(g, x, y);
+  if (hasHeights()) drawHeightEdges(g, cellOrder(), flat);
+  if (flat) drawAllStairsFlat(g);
+  else
+    for (let y = 0; y < S.h; y++)
+      for (let x = 0; x < S.w; x++) if (isStairs(x, y) && hAt(x, y) <= 0 && floorAt(x, y)) drawFlatStairs(g, x, y);
+  if (S.terrain) drawTerrainFlat(g);
   /* кровь на полу: где ранили и где истекали кровью */
   for (const b of S.blood || []) {
     if (!floorAt(b.x, b.y)) continue;
@@ -453,10 +461,12 @@ export function drawFloor() {
     const k = key(x, y),
       c = hc(x, y),
       h = hash(x, y);
-    if (!S.walls.has(k) && hAt(x, y) > 0) {
+    if (!S.walls.has(k) && hAt(x, y) > 0 && !flat) {
       drawRaised(g, x, y);
+      drawTerrainObj(g, x, y);
       continue;
     }
+    if (S.terrain && !S.walls.has(k)) drawTerrainObj(g, x, y);
     if (S.walls.has(k)) {
       const wh = wallH(x, y),
         t = (74 + h * 14) | 0;
@@ -894,7 +904,7 @@ export function renderHL() {
             )
               add(x, y, d <= 1 ? 'arc' : 'rng');
           }
-    } else if (a.kind === 'door') {
+    } else if (a.kind === 'door' || a.kind === 'objectStrike' || a.kind === 'objectPush') {
       for (const c of ringCells(u)) if (validCell(u, a, c.x, c.y)) add(c.x, c.y, 'tgt');
     } else {
       if (a.ranged) {

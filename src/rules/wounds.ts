@@ -33,7 +33,8 @@ export function addWound(u: Unit, ar, opt: Opts = {}) {
   if (!opt.closed) bloodAt(u, 2);
   const w = u.wounds[ar];
   if (w && w.deg >= 4 && !vital(ar)) return false;
-  const deg = !w ? 1 : w.open ? Math.min(4, w.deg + 1) : w.deg;
+  const want = opt.deg || 1;
+  const deg = !w ? want : w.open ? Math.min(4, Math.max(w.deg + 1, want)) : Math.max(w.deg, want);
   if (opt.closed) {
     u.wounds[ar] = {
       deg,

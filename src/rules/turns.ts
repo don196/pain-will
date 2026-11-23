@@ -1,3 +1,4 @@
+import { terrainEndTurn } from './terrain';
 import { runSideAI } from '../ai/ai';
 import { DIS, DIS_ICON } from '../data/disorders';
 import { EFF_RU } from '../data/labels';
@@ -180,6 +181,7 @@ export async function endPhase() {
       applyDamage(u, 1, ls ? byId(ls.by) : null);
       if (S.over) return;
     }
+    if (!u.down) terrainEndTurn(u);
     if (!u.down) decaySt(u);
     if (SET.edgeLast && u._lastTurn && !u.down && onEdge(u)) {
       u._lastTurn = false;

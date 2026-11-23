@@ -1,4 +1,5 @@
 import { sfx } from './sound';
+import { hasTerrain } from '../rules/terrain';
 import { view } from '../view';
 import type { Unit } from '../types';
 import { aiTurn } from '../ai/ai';
@@ -32,7 +33,7 @@ import { atkMods, bdefOf, hasEff, hitCalc, pContest, reqOk, speedOf, stat } from
 import { AREAS, woundPenTxt } from '../rules/wounds';
 import { SET } from '../settings';
 import { S, alive, byId, friends, selUnit } from '../state';
-import { CELL, boardW, drawLight, renderHL, renderTokens, tokPos } from './board';
+import { CELL, boardW, drawLight, layoutBoard, renderHL, renderTokens, tokPos } from './board';
 import { renderEditor } from './editor';
 import { restart } from './game';
 import { hintOf } from './hints';
@@ -62,6 +63,10 @@ export function actState(u: Unit, id) {
       show: false,
     };
   if (id === 'throwHeld' && !u.torch)
+    return {
+      show: false,
+    };
+  if (['objectStrike', 'objectPush', 'coverFull'].includes(id) && (u.side !== 'pc' || !hasTerrain()))
     return {
       show: false,
     };
@@ -126,6 +131,7 @@ export function actsOf(u: Unit) {
     if (id === 'move') out.push('swap', 'door');
   }
   if (!out.includes('swap')) out.push('swap', 'door');
+  if (u.side === 'pc') out.push('objectStrike', 'objectPush', 'coverFull');
   out.push('breakbind', 'unbind', 'unlasso');
   if (u.side === 'pc') out.push('revive');
   return out;
@@ -137,6 +143,7 @@ export const UI = (() => {
   const d = {
     zoc: true,
     fc: true,
+    hview: 'flat',
     logF: 'all',
     det: {},
   };
@@ -173,7 +180,12 @@ export function actGroup(id, a) {
   if (a.kind === 'prep') return 4;
   if (a.kind === 'push') return 1;
   if (a.kind === 'unlasso') return 3;
-  if (['throw', 'bandage', 'trap', 'wswap', 'revive'].includes(a.kind) || id === 'reload') return 3;
+  if (
+    ['throw', 'bandage', 'trap', 'wswap', 'revive', 'objectStrike', 'objectPush'].includes(a.kind) ||
+    id === 'reload' ||
+    id === 'coverFull'
+  )
+    return 3;
   if ((ATTACK_KINDS.includes(a.kind) || a.kind === 'pair') && !a.magic) return 1;
   return 2;
 }
@@ -577,13 +589,21 @@ export function renderTurn() {
   const cb = $('#btnCardSheet');
   if (cb) cb.onclick = () => openCardSheet();
   $('#bov').innerHTML =
-    `<button type="button" class="chipbtn" id="tgFc" aria-pressed="${!!UI.fc}" title="Шанс и Боль над целями и карточка прогноза у цели"><i></i>Прогноз</button><button type="button" class="chipbtn" id="tgZoc" aria-pressed="${!!(UI.zoc && SET.zoc)}" ${SET.zoc ? '' : 'disabled'} title="${SET.zoc ? 'Гексы, выход из которых вызовет удар противника' : 'Зона контроля выключена в правилах'}"><i></i>Зоны контроля</button><button type="button" class="chipbtn" id="tgLeg" title="Что означают значки над фигурами">Значки</button>`;
+    `<button type="button" class="chipbtn" id="tgFc" aria-pressed="${!!UI.fc}" title="Шанс и Боль над целями и карточка прогноза у цели"><i></i>Прогноз</button><button type="button" class="chipbtn" id="tgZoc" aria-pressed="${!!(UI.zoc && SET.zoc)}" ${SET.zoc ? '' : 'disabled'} title="${SET.zoc ? 'Гексы, выход из которых вызовет удар противника' : 'Зона контроля выключена в правилах'}"><i></i>Зоны контроля</button><button type="button" class="chipbtn" id="tgLeg" title="Что означают значки над фигурами">Значки</button>${hasHeights() ? `<button type="button" class="chipbtn" id="tgHv" aria-pressed="${UI.hview === 'raised'}" title="Высоты на своём гексе (как в 4.5) или приподнятыми площадками"><i></i>Объём высот</button>` : ''}`;
   $('#tgFc').onclick = () => {
     UI.fc = !UI.fc;
     saveUI();
     render();
   };
   $('#tgLeg').onclick = openLegend;
+  const hv = $('#tgHv');
+  if (hv)
+    hv.onclick = () => {
+      UI.hview = UI.hview === 'raised' ? 'flat' : 'raised';
+      saveUI();
+      layoutBoard();
+      render();
+    };
   $('#tgZoc').onclick = () => {
     UI.zoc = !UI.zoc;
     saveUI();
