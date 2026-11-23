@@ -1,6 +1,6 @@
 import type { Unit } from '../types';
 import { A } from '../data/actions';
-import { canControl, canTarget, trapCells, validCell, validThrow } from '../rules/actions';
+import { canControl, canTarget, isHuman, trapCells, validCell, validThrow } from '../rules/actions';
 import { stOf } from '../rules/combat';
 import {
   adjOk,
@@ -13,6 +13,7 @@ import {
   pathTo,
   posOf,
   reachClear,
+  near1,
   ringCells,
   torchAt,
   unitAt,
@@ -27,7 +28,7 @@ import { S, selUnit } from '../state';
 import { UI, effAct, renderForecast, zocPreview } from './panels';
 import { fxChips, fxNames, odPipsHTML } from './status';
 import { limOf, onEdge, painOf } from '../rules/pain';
-import { $, REDUCED, cheb, el, hash, hd, key, sz, unkey } from '../util';
+import { $, REDUCED, cheb, el, esc, hash, hd, key, pct, sz, unkey } from '../util';
 export let CELL = 46;
 export function appendLog(e) {
   const box = $('#log');
@@ -121,7 +122,7 @@ export function flash(u: Unit) {
 }
 export function computeCell() {
   const wrap = $('#wrap');
-  const wide = window.innerWidth > 1180;
+  const wide = window.innerWidth > 700 && wrap.clientHeight > 120;
   const aw = wrap.clientWidth - 22,
     ah = wide ? wrap.clientHeight - 22 : 99999;
   return Math.max(
@@ -265,11 +266,6 @@ export function drawRaised(g, x, y) {
     }
     g.stroke();
   }
-  g.fillStyle = 'rgba(232,227,213,.42)';
-  g.font = `600 ${Math.max(9, cs * 0.2) | 0}px "Martian Mono",monospace`;
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText('+' + lv, c.x + cs * 0.26, c.y - cs * 0.14 * KY);
   return pr;
 }
 /* Лестница на уровне 0 — только ступени на полу. */
@@ -523,6 +519,7 @@ export function renderTokens() {
         [S.sel === u.id, 'sel'],
         [sz(u) > 1, 's2'],
         [!u.down && !S.over && !S.editor && u.side === S.phase && u.od === 0, 'spent'],
+        [!u.down && !S.over && !S.editor && !S.busy && u.side === S.phase && u.od > 0 && isHuman(u.side), 'ready'],
         [u.torch, 'torch'],
         [u.shield > 0, 'shield'],
         [darkPen(u) > 0 && !(vis && heat), 'dark'],
@@ -586,6 +583,10 @@ export function renderTokens() {
     if (fb._h !== html) {
       fb._h = html;
       fb.innerHTML = html;
+      /* в толпе — два значка и «+N», остальные при наведении */
+      const n = fb.children.length;
+      if (n > 2) fb.dataset.more = String(n - 2);
+      else delete fb.dataset.more;
       d.querySelector('.fxn').innerHTML = u.down ? '' : fxNames(u);
     }
   }
@@ -690,6 +691,8 @@ export function loop(t) {
 }
 export function renderHL() {
   if (!S || S.sim) return;
+  let losLine = null,
+    zlab = null;
   const cells = $('#hl').children,
     cls = new Array(S.w * S.h).fill('');
   const add = (x, y, c) => {
@@ -712,13 +715,21 @@ export function renderHL() {
         if (!v.d) continue;
         const [x, y] = unkey(k);
         add(x, y, v.d <= sp ? 'mv1' : 'mv2');
-        if (SET.zoc && zocPreview(u, pathTo(dist, x, y)).length) add(x, y, 'zw');
       }
       if (S.hover) {
         const hk = key(S.hover.x, S.hover.y);
         if (dist.has(hk) && dist.get(hk).d > 0) {
-          for (const [x, y] of pathTo(dist, S.hover.x, S.hover.y)) add(x, y, 'path');
+          const path = pathTo(dist, S.hover.x, S.hover.y);
+          for (const [x, y] of path) add(x, y, 'path');
           addU(posOf(u, S.hover.x, S.hover.y), 'path');
+          /* зона контроля — только на этом пути: кто ударит и с каким шансом */
+          const zp = SET.zoc ? zocPreview(u, path) : [];
+          for (const z of zp) addU(z.e, 'zthreat');
+          if (zp.length)
+            zlab = {
+              at: S.hover,
+              html: zp.map(z => `⚔ ${esc(z.e.name)} ударит, ${pct(z.p)}`).join('<br>'),
+            };
         }
       }
     } else if (a.kind === 'pair') {
@@ -767,6 +778,7 @@ export function renderHL() {
       if (a.ranged) {
         for (let y = 0; y < S.h; y++)
           for (let x = 0; x < S.w; x++) {
+            if (!isFloor(x, y)) continue;
             const d = cheb(u, {
               x,
               y,
@@ -774,7 +786,6 @@ export function renderHL() {
             if (
               d >= (a.noAdj ? 2 : 1) &&
               d <= a.range &&
-              isFloor(x, y) &&
               los(
                 u,
                 {
@@ -785,7 +796,29 @@ export function renderHL() {
               ).ok
             )
               add(x, y, 'rng');
+            else if (d > 0) add(x, y, 'dimc');
           }
+        /* линия выстрела к клетке под курсором: зелёная — чисто, красная — что перекрывает */
+        if (S.hover && (S.hover.x !== u.x || S.hover.y !== u.y)) {
+          const tu = unitAt(S.hover.x, S.hover.y);
+          const tgt = tu || S.hover,
+            d = cheb(u, tgt),
+            l = los(u, tgt, u);
+          const far = d > a.range,
+            ok = l.ok && !far && !(a.noAdj && d < 2);
+          losLine = {
+            from: tokPos(u),
+            to: tu ? tokPos(tu) : hc(S.hover.x, S.hover.y),
+            ok,
+            why: !l.ok
+              ? 'перекрывает: ' + l.why
+              : far
+                ? `далеко: ${d} из ${a.range}`
+                : a.noAdj && d < 2
+                  ? 'вплотную нельзя'
+                  : '',
+          };
+        }
       } else if ((a.reach || 1) > 1 && a.kind === 'attack') {
         for (let y = 0; y < S.h; y++)
           for (let x = 0; x < S.w; x++) {
@@ -820,6 +853,13 @@ export function renderHL() {
     }
   }
   if (!S.editor && u && !u.down) addU(u, 'selc');
+  /* опасная кромка: стоит на уступе, рядом враг — могут столкнуть вниз */
+  if (!S.editor && hasHeights())
+    for (const o of S.units) {
+      if (o.down || !hAt(o.x, o.y)) continue;
+      const drop = ringCells(o).some(c => floorAt(c.x, c.y) && hAt(c.x, c.y) < hAt(o.x, o.y));
+      if (drop && S.units.some(e => !e.down && e.side !== o.side && near1(e, o))) addU(o, 'ledge');
+    }
   if (!S.editor && !S.over && UI.zoc && SET.zoc) {
     const side = u && !u.down ? u.side : 'pc';
     for (const e of S.units) {
@@ -831,5 +871,35 @@ export function renderHL() {
     const c = 'c' + cls[i];
     if (cells[i].getAttribute('class') !== c) cells[i].setAttribute('class', c);
   }
+  drawLos(losLine);
+  drawZlab(zlab);
   renderForecast();
+}
+function drawLos(l) {
+  const sv = $('#losl');
+  if (!sv) return;
+  sv.setAttribute('width', boardW());
+  sv.setAttribute('height', boardH());
+  if (!l) {
+    sv.innerHTML = '';
+    return;
+  }
+  const y0 = l.from.y - CELL * 0.45,
+    y1 = l.to.y - CELL * 0.35,
+    mx = (l.from.x + l.to.x) / 2,
+    my = (y0 + y1) / 2;
+  sv.innerHTML = `<line class="los ${l.ok ? 'ok' : 'bad'}" x1="${l.from.x.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${l.to.x.toFixed(1)}" y2="${y1.toFixed(1)}"/>${l.why ? `<text class="losw" x="${mx.toFixed(1)}" y="${(my - 8).toFixed(1)}">${esc(l.why)}</text>` : ''}`;
+}
+function drawZlab(z) {
+  const box = $('#zlab');
+  if (!box) return;
+  if (!z) {
+    box.hidden = true;
+    return;
+  }
+  const p = hc(z.at.x, z.at.y);
+  box.innerHTML = z.html;
+  box.style.left = p.x.toFixed(1) + 'px';
+  box.style.top = (p.y + CELL * 0.35).toFixed(1) + 'px';
+  box.hidden = false;
 }

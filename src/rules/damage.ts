@@ -58,8 +58,14 @@ export function downUnit(u: Unit, src?) {
     if (S.stat) S.stat.ko = (S.stat.ko || 0) + 1;
     ev(
       `💤 ${uName(u)} теряет сознание от боли${u.bleed > 0 || openWounds(u).length ? ' и истекает кровью: в начале каждого хода героев — шаг к смерти, третий шаг — смерть. Перевязка останавливает' : ' — кровотечения нет, состояние стабильно'}`,
+      { k: 'down', u: u.id, by: src ? src.id : null },
     );
-  } else ev(u.dead ? `✝ ${uName(u)} погибает` : `✝ ${uName(u)} выбывает из боя — Боль дошла до предела`);
+  } else
+    ev(u.dead ? `✝ ${uName(u)} погибает` : `✝ ${uName(u)} выбывает из боя — Боль дошла до предела`, {
+      k: u.dead ? 'dead' : 'down',
+      u: u.id,
+      by: src ? src.id : null,
+    });
   u.effects = [];
   if (!u.ko) u.bleed = 0;
   if (u.torch) {

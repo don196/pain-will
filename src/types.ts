@@ -126,6 +126,7 @@ export interface Scenario {
 export interface LogEntry {
   html: string;
   cls: string;
+  meta?: any;
 }
 
 /** Состояние боя. */

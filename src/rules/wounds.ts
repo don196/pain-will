@@ -59,7 +59,7 @@ export function addWound(u: Unit, ar, opt: Opts = {}) {
 }
 
 /* Начало своего хода: открытая рана даёт +1 стак; обычная закрывается в начале 3-го хода, серьёзная — 4-го (сначала закрытие). */
-export function tickWounds(u: Unit) {
+export function tickWounds(u: Unit, quiet = false) {
   const closed = [];
   let add = 0;
   for (const ar in u.wounds) {
@@ -76,8 +76,9 @@ export function tickWounds(u: Unit) {
   if (closed.length) ev(`${uName(u)}: рана закрылась — ${closed.join(', ')}`);
   if (add) {
     u.bleed += add;
-    ev(`🩸 ${uName(u)}: открытые раны +${add} к кровотечению, стаков ${u.bleed}`);
+    if (!quiet) ev(`🩸 ${uName(u)}: открытые раны +${add} к кровотечению, стаков ${u.bleed}`);
   }
+  return add;
 }
 export const openWounds = (t: Unit) => (Object.entries(t.wounds || {}) as [Area, Wound][]).filter(([, w]) => w.open);
 export function needsCare(t) {

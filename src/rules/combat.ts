@@ -95,7 +95,11 @@ export function fall(u: Unit, h) {
     return;
   }
   const n = fallPain(h);
-  ev(`⤵ ${uName(u)} падает с уступа высотой ${h}: ${n} Боли сквозь броню${h >= 3 ? ', рана' : ''}`);
+  ev(`⤵ ${uName(u)} падает с уступа высотой ${h}: ${n} Боли сквозь броню${h >= 3 ? ', рана' : ''}`, {
+    k: 'fall',
+    u: u.id,
+    n,
+  });
   setProne(u, 'падение');
   applyDamage(u, n, null);
   if (h >= 3 && !u.down) addWound(u, pick(AREAS));

@@ -88,6 +88,23 @@ try {
       });
       ok(ui4.mv > 0 && ui4.fc && /^1/.test(ui4.keys), 'перемещение по умолчанию, карточка прогноза, клавиши действий', JSON.stringify(ui4));
 
+      // 4.1: отмена с теми же кубиками, лента событий, прогноз с защитой
+      await page.evaluate(() => P.loadScenario('dummies'));
+      await page.waitForTimeout(300);
+      const u41 = await page.evaluate(async () => {
+        const S0 = P.S, c = S0.units.find(u => u.tpl === 'conrad'), e = S0.units.find(u => u.name === 'Щитоносец');
+        c.x = e.x - 1; c.y = e.y; P.render();
+        const sig = () => JSON.stringify(P.S.units.map(u => [u.id, u.hp, u.od, u.x, u.y]));
+        const hit = () => P.run(() => P.perform(P.S.units.find(u => u.tpl === 'conrad'), 'csword', P.S.units.find(u => u.name === 'Щитоносец')));
+        const before = sig(); await hit(); const a1 = sig(); P.undo(); const back = sig() === before; await hit(); const same = sig() === a1;
+        const rib = document.querySelectorAll('#ribbon .rbi').length;
+        P.S.act = 'csword'; P.S.hover = { x: P.S.units.find(u => u.name === 'Щитоносец').x, y: P.S.units.find(u => u.name === 'Щитоносец').y }; P.renderHL();
+        const fc = document.querySelector('#fcard').innerText;
+        P.S.act = null; P.S.hover = null; P.render();
+        return { back, same, rib, def: /защищается/.test(fc), ko: /Вывести из боя/.test(fc) };
+      });
+      ok(u41.back && u41.same && u41.rib > 0 && u41.def && u41.ko, 'отмена с теми же кубиками, лента событий, прогноз с защитой', JSON.stringify(u41));
+
       // 4.0: высоты — лестница, уступ, падение, +2 сверху
       await page.evaluate(() => P.loadScenario('heights'));
       await page.waitForTimeout(300);

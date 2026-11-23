@@ -156,6 +156,7 @@ export function enterEdge(u: Unit) {
   u.od = Math.min(u.od || 0, 1);
   ev(
     `💢 ${uName(u)} — Боль дошла до предела (${limOf(u)}): <b>на пороге</b>. Лежит, 1 ОД в ход: ползти, перевязывать, отдавать приказы. Любая новая Боль — без сознания`,
+    { k: 'edge', u: u.id },
   );
   view.fxText(u, 'на пороге', 'dmg');
   if (!S.sim) view.play({ t: 'edge', u });

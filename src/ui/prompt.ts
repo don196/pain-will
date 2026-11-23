@@ -18,6 +18,14 @@ export function askChoice(title, body, opts) {
     const bs = $('#pbox').querySelectorAll('button');
     if (bs[0] && bs[0].focus) bs[0].focus();
     bs.forEach(b => (b.onclick = () => closePrompt(opts[+b.dataset.i].v)));
+    /* Esc — последний вариант (обычно «вернуться» или «принять удар») */
+    const esc = e => {
+      if (e.key !== 'Escape' || $('#prompt').hidden) return;
+      e.preventDefault();
+      document.removeEventListener('keydown', esc, true);
+      closePrompt(opts[opts.length - 1].v);
+    };
+    document.addEventListener('keydown', esc, true);
   });
 }
 

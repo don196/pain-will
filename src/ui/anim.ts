@@ -46,6 +46,8 @@ function strikeFx(e) {
 }
 
 const DEG_SHORT = ['мимо', 'обычный', 'усиленный', 'крит'];
+/* своя случайность для мелькающих цифр — поток боя не трогаем */
+let spinN = 7;
 function rollBadge(e, spin) {
   const p = tokPos(e.def),
     d = el('div', 'roll');
@@ -69,7 +71,8 @@ function rollBadge(e, spin) {
         d.classList.add('done');
         return;
       }
-      b.textContent = String(lo + Math.floor(Math.random() * (hi - lo + 1)));
+      spinN = (spinN * 1103515245 + 12345) & 0x7fffffff;
+      b.textContent = String(lo + (spinN % (hi - lo + 1)));
       setTimeout(tick, 45);
     };
     tick();

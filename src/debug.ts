@@ -39,6 +39,8 @@ import * as input from './ui/input';
 import * as height from './rules/height';
 import * as anim from './ui/anim';
 import * as zoom from './ui/zoom';
+import * as history from './ui/history';
+import * as rng from './rng';
 
 const all: any[] = [
   actions,
@@ -80,6 +82,8 @@ const all: any[] = [
   height,
   anim,
   zoom,
+  history,
+  rng,
 ];
 const P = new Proxy({} as any, {
   get(_t, k) {
