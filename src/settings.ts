@@ -14,7 +14,28 @@ export const DEFAULT_SET = {
   ambush: false,
   anim: 'normal',
   lighting: true,
+  // Варианты из параллельной ветки 4.5 — для сравнения в симуляции; по умолчанию выключены
+  edgeLast: false, // «последний ход» на пороге: следующий свой ход со всеми ОД, затем без сознания
+  parryDiff: false, // парирование: штраф по разнице весов оружия (1/3/5); дубина толстяка — среднее оружие
+  lightBonus: false, // +2 к атаке лёгким оружием
+  voiceOnly: false, // на пороге — только речь и голосовые заклинания
+  // Таблицы правил (правятся в «Правилах»); null — значения по умолчанию
+  tbl: null as any,
 };
+
+/* Таблицы правил по умолчанию: Боль по классу оружия и степени, броня, штраф от Боли, пределы, веса для парирования. */
+export const DEFAULT_TBL = {
+  pcls: { light: [1, 1, 2], med: [1, 2, 3], heavy: [1, 2, 4] },
+  armorDiv: 2,
+  painStep: 2,
+  limBase: 5,
+  limHero: 1,
+  limTough: 1,
+  limFragile: -1,
+  limMook: -1,
+  parryW: { light: 1, med: 3, heavy: 5 },
+};
+export const TBL = () => (SET && SET.tbl ? SET.tbl : DEFAULT_TBL);
 
 export function loadSet() {
   try {

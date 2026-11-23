@@ -9,7 +9,8 @@ import { heightMod } from './height';
 import { snareP } from './lasso';
 import { darkPen } from './light';
 import { selfHateHit } from './magic';
-import { painInfo } from './pain';
+import { painInfo, wClass } from './pain';
+import { SET } from '../settings';
 import { ap3Degree, missThr, resist } from './reactions';
 import { friends, hostiles } from '../state';
 import { cheb, sum } from '../util';
@@ -226,6 +227,20 @@ export function atkMods(u: Unit, act: Action, t) {
         v: -P.pen[f - 1],
       });
   }
+  /* вариант 4.5: +2 к атаке лёгким оружием (не магия, не кулаки, не щит) */
+  if (
+    SET.lightBonus &&
+    ['attack', 'pair'].includes(act.kind) &&
+    !act.magic &&
+    act.fixed == null &&
+    !act.noPain &&
+    !['improv', 'buckler', 'vetShield', 'bucklerTap'].includes(actId(act)) &&
+    wClass(u, act) === 'light'
+  )
+    m.push({
+      l: 'лёгкое оружие',
+      v: 2,
+    });
   const hm = heightMod(u, t);
   if (hm)
     m.push({

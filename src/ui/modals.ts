@@ -5,11 +5,12 @@ import { T } from '../data/fighters';
 import { SCN } from '../data/scenarios';
 import { isHuman } from '../rules/actions';
 import { endPhase, phaseLoop } from '../rules/turns';
-import { SET, saveSet } from '../settings';
+import { DEFAULT_TBL, SET, TBL, saveSet } from '../settings';
 import { S, SIMULATING } from '../state';
 import { drawLight } from './board';
 import { loadScenario, restart } from './game';
 import { render } from './panels';
+import { applyTables } from '../rules/pain';
 import { $, CANCEL, esc } from '../util';
 
 export let modalOnClose = null;
@@ -33,6 +34,24 @@ export function closeModal() {
   }
 }
 
+/* Таблицы правил: Боль по классу оружия, броня, штраф от Боли, пределы, веса для парирования. */
+function tblEditor() {
+  const t = TBL(),
+    n = (path, v, min = 0, max = 9) =>
+      `<input type="number" class="ni" min="${min}" max="${max}" data-tbl="${path}" value="${v}" aria-label="${path}">`;
+  const CL = [
+    ['light', 'лёгкое'],
+    ['med', 'среднее'],
+    ['heavy', 'тяжёлое'],
+  ];
+  return `<div class="tbls">
+    <table class="odds tbl"><tr><th>Боль удара</th><th>обычный</th><th>усиленный</th><th>крит</th><th>вес для парирования</th></tr>
+    ${CL.map(([k, l]) => `<tr><th class="rh">${l}</th>${[0, 1, 2].map(i => `<td>${n(`pcls.${k}.${i}`, t.pcls[k][i])}</td>`).join('')}<td>${n(`parryW.${k}`, t.parryW[k], 0, 9)}</td></tr>`).join('')}</table>
+    <div class="tblr"><label>Броня гасит прочность / ${n('armorDiv', t.armorDiv, 1, 5)} (вверх)</label>
+    <label>−1 к атакам за каждые ${n('painStep', t.painStep, 1, 9)} Боли</label></div>
+    <div class="tblr"><label>Предел Боли: база ${n('limBase', t.limBase, 1, 12)}</label><label>герой ${n('limHero', t.limHero, -3, 3)}</label><label>Крепкий ${n('limTough', t.limTough, -3, 3)}</label><label>Хрупкий ${n('limFragile', t.limFragile, -3, 3)}</label><label>рядовой ${n('limMook', t.limMook, -3, 3)}</label></div>
+    <button type="button" id="tblReset">Вернуть таблицы по умолчанию</button></div>`;
+}
 export function openRules() {
   const radio = (name, opts) =>
     `<div class="ch">${opts.map(([v, l]) => `<label><input type="radio" name="${name}" value="${v}" ${String(SET[name]) === String(v) ? 'checked' : ''}> ${l}</label>`).join('')}</div>`;
@@ -86,7 +105,28 @@ export function openRules() {
       ['true', 'показывать'],
       ['false', 'выключить'],
     ])}<span class="note">Только картинка: затемнение клеток. Правила темноты включаются отдельно.</span></div>
-  </div>`,
+  </div>
+  <h3>Варианты из ветки 4.5</h3><p class="dim">Для сравнения: в «Симуляции» их можно включить только для B и сравнить с текущими.</p>
+  <div class="opts">
+    <div class="opt"><span class="lbl">Порог Боли</span>${radio('edgeLast', [
+      ['false', 'наш: на пороге 1 ОД в ход, пока не придёт новая Боль'],
+      ['true', '«последний ход»: ход потерян, следующий свой — со всеми ОД, затем без сознания'],
+    ])}</div>
+    <div class="opt"><span class="lbl">Парирование оружием</span>${radio('parryDiff', [
+      ['false', 'штраф — вес оружия атакующего (0 / 2 / 4)'],
+      ['true', 'штраф — разница весов (1 / 3 / 5); дубина толстяка — среднее оружие'],
+    ])}</div>
+    <div class="opt"><span class="lbl">Лёгкое оружие</span>${radio('lightBonus', [
+      ['false', 'без бонуса'],
+      ['true', '+2 к атаке (кроме магии, кулаков и щита)'],
+    ])}</div>
+    <div class="opt"><span class="lbl">Магия на пороге</span>${radio('voiceOnly', [
+      ['false', 'нельзя'],
+      ['true', 'только голосовые заклинания и речь (проклятия, магическое зрение)'],
+    ])}</div>
+  </div>
+  <h3>Таблицы правил</h3><p class="dim">Меняются сразу: прогноз, «Шансы» и симуляция считают по ним. Пределы Боли — со следующего боя.</p>
+  ${tblEditor()}`,
     () => {
       $('#mbox')
         .querySelectorAll('input[type=radio]')
@@ -116,6 +156,30 @@ export function openRules() {
               render();
             }),
         );
+      $('#mbox')
+        .querySelectorAll('input[data-tbl]')
+        .forEach(
+          i =>
+            (i.onchange = () => {
+              SET.tbl = SET.tbl || JSON.parse(JSON.stringify(DEFAULT_TBL));
+              const path = i.dataset.tbl.split('.');
+              let o = SET.tbl;
+              while (path.length > 1) o = o[path.shift()];
+              o[path[0]] = Math.round(+i.value) || 0;
+              saveSet();
+              applyTables();
+              render();
+            }),
+        );
+      const rt = $('#tblReset');
+      if (rt)
+        rt.onclick = () => {
+          SET.tbl = null;
+          saveSet();
+          applyTables();
+          render();
+          openRules();
+        };
       $('#mbox')
         .querySelectorAll('input[data-party]')
         .forEach(

@@ -298,6 +298,15 @@ export function renderDataTab() {
     tw = box.querySelector('.tblwrap'),
     tsc = tw ? [tw.scrollTop, tw.scrollLeft] : null;
   box.innerHTML = DTAB === 'chars' ? charsTab() : DTAB === 'weap' ? weapTab() : ioTab();
+  /* подписи ячеек: на телефоне таблица бойцов превращается в карточки */
+  box.querySelectorAll('table.dtab').forEach(tb => {
+    const hs = [...tb.querySelectorAll('thead th')].map(th => (th as HTMLElement).innerText.trim());
+    tb.querySelectorAll('tbody tr:not(.wrow)').forEach(tr =>
+      tr.querySelectorAll(':scope > td').forEach((td, i) => {
+        if (hs[i]) td.setAttribute('data-l', hs[i]);
+      }),
+    );
+  });
   bindDataTab();
   mb.scrollTop = sc;
   const tw2 = box.querySelector('.tblwrap');

@@ -1,4 +1,5 @@
 import { cellsOf } from './rules/geometry';
+import { FORCED } from './rng';
 export const $ = s => document.querySelector(s);
 export const el = (t, c, h?) => {
   const e = document.createElement(t);
@@ -76,7 +77,7 @@ export const cheb = (a, b) => {
     }
   return m;
 };
-export const d20 = () => 1 + Math.floor(Math.random() * 20);
+export const d20 = () => (FORCED.length ? FORCED.shift() : 1 + Math.floor(Math.random() * 20));
 export const pick = a => (a.length ? a[Math.floor(Math.random() * a.length)] : null);
 export const sum = a => a.reduce((s, m) => s + m.v, 0);
 export const fmtN = n => (Math.round(n * 100) / 100).toString().replace('.', ',');
