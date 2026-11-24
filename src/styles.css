@@ -172,6 +172,11 @@ kbd{font:400 10px var(--mono);border:1px solid var(--rule);border-radius:2px;pad
 /* ===== 3.0: изометрическое поле ===== */
 #board{box-shadow:none;background:radial-gradient(ellipse at 50% 55%,#131a22 0,#07090c 72%)}
 #links{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}
+#lvb{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}
+#lvb .lb{fill:rgba(10,12,16,.86);stroke:#d9c49a;stroke-width:1}
+#lvb .lt{fill:#d9c49a}
+#lvb .ln{font-family:var(--mono);font-weight:600;fill:#f1e6cc;text-anchor:middle}
+#lvb .ln.all{font-weight:400;fill:rgba(242,230,201,.82)}
 #links line{stroke:#d8c79a;stroke-width:2;stroke-dasharray:5 3;filter:drop-shadow(0 1px 1px #000)}
 #links line.cov{stroke:var(--patina);stroke-dasharray:2 4}
 #toks{pointer-events:none}

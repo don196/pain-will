@@ -33,7 +33,7 @@ import { atkMods, bdefOf, hasEff, hitCalc, pContest, reqOk, speedOf, stat } from
 import { AREAS, woundPenTxt } from '../rules/wounds';
 import { SET } from '../settings';
 import { S, alive, byId, friends, selUnit } from '../state';
-import { CELL, boardW, drawLight, layoutBoard, renderHL, renderTokens, tokPos } from './board';
+import { CELL, boardW, drawLight, renderHL, renderTokens, tokPos } from './board';
 import { renderEditor } from './editor';
 import { restart } from './game';
 import { hintOf } from './hints';
@@ -145,7 +145,7 @@ export const UI = (() => {
   const d = {
     zoc: true,
     fc: true,
-    hview: 'flat',
+    lvnum: false,
     logF: 'all',
     det: {},
   };
@@ -596,19 +596,18 @@ export function renderTurn() {
   const cb = $('#btnCardSheet');
   if (cb) cb.onclick = () => openCardSheet();
   $('#bov').innerHTML =
-    `<button type="button" class="chipbtn" id="tgFc" aria-pressed="${!!UI.fc}" title="Шанс и Боль над целями и карточка прогноза у цели"><i></i>Прогноз</button><button type="button" class="chipbtn" id="tgZoc" aria-pressed="${!!(UI.zoc && SET.zoc)}" ${SET.zoc ? '' : 'disabled'} title="${SET.zoc ? 'Гексы, выход из которых вызовет удар противника' : 'Зона контроля выключена в правилах'}"><i></i>Зоны контроля</button><button type="button" class="chipbtn" id="tgLeg" title="Что означают значки над фигурами">Значки</button>${hasHeights() ? `<button type="button" class="chipbtn" id="tgHv" aria-pressed="${UI.hview === 'raised'}" title="Высоты на своём гексе (как в 4.5) или приподнятыми площадками"><i></i>Объём высот</button>` : ''}`;
+    `<button type="button" class="chipbtn" id="tgFc" aria-pressed="${!!UI.fc}" title="Шанс и Боль над целями и карточка прогноза у цели"><i></i>Прогноз</button><button type="button" class="chipbtn" id="tgZoc" aria-pressed="${!!(UI.zoc && SET.zoc)}" ${SET.zoc ? '' : 'disabled'} title="${SET.zoc ? 'Гексы, выход из которых вызовет удар противника' : 'Зона контроля выключена в правилах'}"><i></i>Зоны контроля</button><button type="button" class="chipbtn" id="tgLeg" title="Что означают значки над фигурами">Значки</button>${hasHeights() ? `<button type="button" class="chipbtn" id="tgLv" aria-pressed="${!!UI.lvnum}" title="Номер уровня на каждом гексе; без этого — одна метка на площадку"><i></i>Уровни</button>` : ''}`;
   $('#tgFc').onclick = () => {
     UI.fc = !UI.fc;
     saveUI();
     render();
   };
   $('#tgLeg').onclick = openLegend;
-  const hv = $('#tgHv');
-  if (hv)
-    hv.onclick = () => {
-      UI.hview = UI.hview === 'raised' ? 'flat' : 'raised';
+  const lvb = $('#tgLv');
+  if (lvb)
+    lvb.onclick = () => {
+      UI.lvnum = !UI.lvnum;
       saveUI();
-      layoutBoard();
       render();
     };
   $('#tgZoc').onclick = () => {

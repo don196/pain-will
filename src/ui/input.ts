@@ -215,6 +215,14 @@ export function onCellHover(e) {
   }
   showTip(e, p);
 }
+/* Карточка клетки с высотой: уровень и что он значит по правилам. */
+export function heightTip(lv: number, st: boolean) {
+  if (st)
+    return `<b>Лестница</b>${lv ? ' · уровень ' + lv : ''}<div class="m">Подъём и спуск на соседний уровень — без доплаты ОД.</div>`;
+  if (lv > 0)
+    return `<b>Уровень ${lv}</b><div class="m">Сверху атаки +2. Пунктир по краю — подъём на 1 уровень за лишнее ОД, толстая кромка — 2 уровня и больше, пешком не пройти. Спуск на 1 — без доплаты; столкнутый с края получает Боль по высоте, с 3 уровней — рану.</div>`;
+  return `<b>Яма, уровень ${lv}</b><div class="m">Отсюда виден только край. Выбраться на 1 уровень — лишнее ОД, перепад в 2 и больше пешком не пройти.</div>`;
+}
 export function hideTip() {
   $('#tip').hidden = true;
 }
@@ -236,7 +244,7 @@ export function showTip(e, p) {
       if (td && (!td.collapse || S.editor)) {
         tip.innerHTML = `<b>${esc(td.name)}</b>${td.hp != null ? ` · прочность ${to.hp}/${td.hp}` : ''}${hv ? ' · высота ' + hv : ''}<div class="m">${terrHint(td)}</div>`;
       } else if (hv || st) {
-        tip.innerHTML = `${hv ? 'Высота ' + hv : 'Пол'}${st ? ' · лестница: подъём без доплаты' : ''}`;
+        tip.innerHTML = heightTip(hv, st);
       } else if (!S.editor && (d || b)) {
         tip.innerHTML = d
           ? `Дверь: ${d.open ? 'открыта' : 'закрыта'}${d.locked ? ', заперта' : ''}`
