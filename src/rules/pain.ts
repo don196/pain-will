@@ -4,8 +4,9 @@ import { DEG_RU, PCLS_RU, PTYP_RU } from '../data/labels';
 import { addSt, interrupt, wtOf } from './combat';
 import { inFoot } from './geometry';
 import { ev, uName } from './log';
+import { witnessDown } from './disorders';
 import { stat } from './stats';
-import { AREAS, addWound, tickWounds } from './wounds';
+import { AREAS, addWound, syncBleed, tickWounds } from './wounds';
 import { S } from '../state';
 import { esc, pick } from '../util';
 import { DEFAULT_TBL, SET, TBL } from '../settings';
@@ -61,7 +62,16 @@ export function wType(act: Action) {
   return act.ptyp || (act.magic ? 'fire' : act.ranged ? 'pierce' : 'cut');
 }
 
-/* Боль удара: класс × степень (+1 в спину, +1 о преграду). Броня гасит половину текущей прочности (вверх), колющее усиленным и критическим — на 1 меньше. Прочность стирают крит, дробящее усиленным и Сила 7+ в ближнем бою (усиленный, критический). */
+/* Боль удара: класс × степень (+1 в спину, +1 о преграду), затем броня по таблице свода 2.4.
+   Колющее и дробящее считают броню на 1 меньше. Броня не изнашивается. */
+export function armorCut(ap, raw) {
+  if (ap <= 0 || raw <= 0) return raw;
+  const a = Math.min(3, ap),
+    T = (TBL().armorT || DEFAULT_TBL.armorT)[a];
+  if (raw <= 4) return Math.max(0, +T[raw - 1]);
+  /* сверх таблицы — та же доля, что у четырёх */
+  return Math.max(0, raw - Math.round(((4 - T[3]) * raw) / 4));
+}
 export function painInfo(att: Unit, act: Action, def: Unit, t, o: Opts = {}) {
   const cls = wClass(att, act),
     typ = wType(act);
@@ -75,16 +85,11 @@ export function painInfo(att: Unit, act: Action, def: Unit, t, o: Opts = {}) {
     raw += 1;
     notes.push('о преграду +1');
   }
-  const ap = act.ignoreArmor ? 0 : armorNow(def);
-  let abs = 0,
-    wear = 0;
-  /* Броня гасит половину текущей прочности (вверх) от каждого удара; колющее усиленным и критическим — на 1 меньше. Критический стирает пункт прочности, дробящее — и усиленный. */
-  if (ap > 0) {
-    const k = Math.ceil(ap / Math.max(1, TBL().armorDiv));
-    abs = Math.min(raw, typ === 'pierce' && t > 1 ? k - 1 : k);
-    wear = t >= 3 || (typ === 'blunt' && t >= 2) ? 1 : 0;
-  }
-  const crush = !act.ranged && !act.magic && t >= 2 && stat(att, 'str') >= 7 && ap - wear > 0 ? 1 : 0;
+  const ap0 = act.ignoreArmor ? 0 : armorNow(def),
+    ap = ap0 > 0 && (typ === 'pierce' || typ === 'blunt') ? ap0 - 1 : ap0;
+  const abs = raw - armorCut(ap, raw),
+    wear = 0,
+    crush = 0;
   let net = raw - abs;
   if (o.vd) net *= 2;
   return {
@@ -93,6 +98,7 @@ export function painInfo(att: Unit, act: Action, def: Unit, t, o: Opts = {}) {
     t,
     raw,
     ap,
+    ap0,
     abs,
     wear,
     crush,
@@ -105,17 +111,14 @@ export function painInfo(att: Unit, act: Action, def: Unit, t, o: Opts = {}) {
 export function painTxt(p, t) {
   let s = `Боль: ${PCLS_RU[p.cls]} ${PTYP_RU[p.typ]}${p.heavyDown ? ' (Сила ниже 6 — как среднее)' : ''}, ${DEG_RU[t]} — ${PCLS[p.cls][t]}`;
   if (p.notes.length) s += ', ' + p.notes.join(', ');
-  if (p.ap)
-    s += ` − броня ${p.abs}${p.typ === 'pierce' && p.t > 1 ? ' (колющее: на 1 меньше)' : ''}${p.wear + p.crush ? ` [прочность ${p.ap} → ${Math.max(0, p.ap - p.wear - p.crush)}${p.crush ? ', Сила 7+ ломает ещё 1' : ''}]` : ''}`;
+  if (p.ap0) s += ` − броня ${p.ap}${p.ap !== p.ap0 ? ` (${p.ap0}, ${PTYP_RU[p.typ]} — на 1 меньше)` : ''}: ${p.abs}`;
   if (p.vd) s += ' × 2 (Уязвимость)';
   return s + ` = <b>${p.net}</b>`;
 }
+/* Броня не изнашивается (свод 2.4) — оставлено для совместимости вызовов. */
 export function painWear(def: Unit, p) {
-  if (!p || !(p.wear + p.crush)) return;
-  const a0 = armorNow(def);
-  def.armorPts = Math.max(0, a0 - p.wear - p.crush);
-  if (a0 > 0 && def.armorPts === 0)
-    ev(`<span class="dim">🛡 ${esc(def.name)}: броня больше не держит (прочность 0)</span>`);
+  void def;
+  void p;
 }
 export function painAfterTxt(def: Unit, dmg) {
   const L = limOf(def),
@@ -135,31 +138,39 @@ export function painWound(att: Unit, act: Action, def: Unit, deg, p) {
     t = deg.t;
   const xb = why => {
     if (act.xbleed && !def.down) {
-      def.bleed += act.xbleed;
-      ev(`🩸 ${esc(act.name)}: ${why} — ещё ${act.xbleed} стак кровотечения у ${uName(def)}, стаков ${def.bleed}`);
+      def.bleedX = (def.bleedX || 0) + act.xbleed;
+      syncBleed(def);
+      ev(`🩸 ${esc(act.name)}: ${why} — кровотечение сильнее (+${act.xbleed} к тяжести) у ${uName(def)}`);
     }
   };
+  /* Свод 2.4: последствия по виду оружия, только если после брони осталась Боль.
+     Режущее: усиленный — обычная открытая рана, крит — серьёзная. Колющее: крит — обычная.
+     Дробящее: усиленный — Неустойчивость, крит — ещё закрытая рана и Дезориентация. Огонь: крит — Прижигание (у карточки). */
+  if (p.net <= 0) return null;
   if (p.typ === 'fire') return null;
   if (p.typ === 'blunt') {
-    if (t === 3) {
+    if (t >= 2) addSt(def, 'unst', 1, 'дробящий удар');
+    if (t === 3 && !def.down) {
       ev(`🔨 Критический дробящий удар — закрытая рана и Дезориентация`);
-      const ok = addWound(def, ar(), {
-        closed: true,
-      });
+      const ok = addWound(def, ar(), { closed: true });
       addSt(def, 'disor', 1, 'дробящий крит');
       return ok ? 'wound' : null;
     }
-    if (t === 2) addSt(def, 'unst', 1, 'дробящий удар');
     return null;
   }
-  if (t === 3 || (p.typ === 'cut' && t === 2 && p.ap === 0)) {
-    ev(t === 3 ? `🗡 Критический успех — рана` : `🗡 Режущий усиленный удар по цели без брони — рана`);
-    if (addWound(def, ar())) {
+  const wd = p.typ === 'cut' ? (t === 3 ? 2 : t === 2 ? 1 : 0) : t === 3 ? 1 : 0;
+  if (wd) {
+    ev(
+      p.typ === 'cut'
+        ? `🗡 Режущий ${t === 3 ? 'критический' : 'усиленный'} удар — ${t === 3 ? 'серьёзная' : 'обычная'} открытая рана`
+        : '🗡 Колющий критический удар — обычная открытая рана',
+    );
+    if (addWound(def, ar(), { deg: wd })) {
       xb('рана');
       return 'wound';
     }
   }
-  if (act.xbleed && p.net > 0) {
+  if (act.xbleed) {
     xb('удар прошёл сквозь броню');
     return 'bleed';
   }
@@ -175,7 +186,7 @@ export function enterEdge(u: Unit) {
   u._edgeMark = S.round + ':' + S.phaseIdx;
   u._lastTurn = false;
   ev(
-    `💢 ${uName(u)} — Боль дошла до предела (${limOf(u)}): <b>на пороге</b>. Лежит, 1 ОД в ход: ползти, перевязывать, отдавать приказы. Любая новая Боль — без сознания`,
+    `💢 ${uName(u)} — Боль дошла до предела (${limOf(u)}): <b>на пороге</b>. ${SET.edgeLast ? 'Падает, ОД этого хода сгорают; следующий свой ход — последний: ползти, перевязывать, говорить и колдовать голосом, затем без сознания' : 'Лежит, 1 ОД в ход: ползти, перевязывать, отдавать приказы'}. Любая новая Боль — без сознания`,
     { k: 'edge', u: u.id },
   );
   view.fxText(u, 'на пороге', 'dmg');
@@ -184,13 +195,13 @@ export function enterEdge(u: Unit) {
 export function koTick(u: Unit) {
   tickWounds(u);
   if (u.bleed > 0) {
-    u.bleed--;
     u.deathSteps = (u.deathSteps || 0) + 1;
     if (u.deathSteps >= 3) {
       u.dead = true;
       u.ko = false;
       if (S.stat) S.stat.dead = (S.stat.dead || 0) + 1;
       ev(`✝ ${uName(u)} истекает кровью без сознания и умирает`);
+      witnessDown(u);
     } else ev(`🩸 ${uName(u)} без сознания истекает кровью: шаг к смерти ${u.deathSteps} из 3`);
   } else ev(`<span class="dim">${esc(u.name)} без сознания; кровотечения нет — состояние стабильно</span>`);
 }

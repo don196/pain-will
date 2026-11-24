@@ -10,8 +10,10 @@ import {
 import type { Action, Opts, Unit } from '../types';
 import { A, ATTACK_KINDS } from '../data/actions';
 import { DIS, DISP, DIS_ICON } from '../data/disorders';
-import { WNAME } from '../data/labels';
+import { AREA_RU, WDEG_RU, WNAME } from '../data/labels';
 import { resolveAttack } from './attack';
+import { allyScreen, footFree } from './geometry';
+import { stepCost } from './height';
 import {
   doHabits,
   doOrderBack,
@@ -25,7 +27,7 @@ import {
   v2PrepCheck,
 } from './combat';
 import { applyDamage, release } from './damage';
-import { critWill, disForm, disLock, disOf, guiltNext, oddRoll, sadFail, woundedT } from './disorders';
+import { critWill, disForm, disLock, disOf, distrustOk, guiltNext, oddRoll, sadFail, woundedT } from './disorders';
 import {
   adjOk,
   bfs,
@@ -48,10 +50,10 @@ import { chooseSnarePart, doEscapeLasso, immobile, lassoPart, lassoTarget, relea
 import { hiddenFrom } from './light';
 import { ev, log, sleep, uName } from './log';
 import { doCurse2, doFlash, fireLine, fireSources, spellRoll, validFlash } from './magic';
-import { doRevive, edgeOk, onEdge } from './pain';
+import { doRevive, edgeOk, limOf, onEdge, painOf } from './pain';
 import { reactWants } from './reactions';
 import { checkDegree, getEff, hasEff, hitCalc, modsStr, removeEff, reqOk, speedOf, stat } from './stats';
-import { doBandage, needsCare } from './wounds';
+import { doBandage, needsCare, openWounds, syncBleed } from './wounds';
 import { SET } from '../settings';
 import { S, byId, friends, hostiles } from '../state';
 import { HXD, cheb, d20, esc, hd, key, pick, sgn, sum, sz, unkey } from '../util';
@@ -111,6 +113,11 @@ export function okAct(u: Unit, id, raw?) {
   if (a.cd && S.round < ((u.cd || {})[id] || 0)) return false;
   if (a.kind === 'revive' && u.side !== 'pc') return false;
   if (TERR_ACTS.includes(id) && (u.side !== 'pc' || !hasTerrain())) return false;
+  /* тюремщик, держащий руку, не двигается; бросок цепи — только после раскрутки без перехвата; отскок — раз за ход */
+  if (a.kind === 'move' && u.lassoT && lassoTarget(u) && getEff(lassoTarget(u), 'lasso')?.grip) return false;
+  if (a.needSpin && !(u.spun && u.spun < S.round)) return false;
+  if (a.kind === 'hop' && u._hopTurn === u.turnNo) return false;
+  if (a.grip && u.lassoT && lassoTarget(u)) return false;
   if (id === 'coverFull' && !hasLocalCover(u)) return false;
   if (onEdge(u) && !edgeOk(id, a)) return false;
   if (a.speech && hasEff(u, 'mute')) return false;
@@ -171,12 +178,16 @@ export function canTarget0(u: Unit, act: Action, t, from, friendly?) {
       adjOk(from, t) &&
       !S.units.some(o => !o.down && inFoot(o, t.x, t.y))
     );
+  if (t && t.down && act.kind === 'cauterHeal' && t.ko && !t.dead)
+    return t.side === u.side && cheb(from, t) === 1 && adjOk(from, t) && openWounds(t).length > 0;
   if (t && t.down && act.kind === 'bandage' && t.ko && !t.dead)
     return t.side === u.side && cheb(from, t) === 1 && adjOk(from, t) && needsCare(t);
   if (!t || t.down) return false;
   if (act.ranged && t.covered && coverBetween(from, t)) return false;
   const d = cheb(from, t);
   if (act.kind === 'bandage') return t.side === u.side && (d === 0 || (d === 1 && adjOk(from, t))) && needsCare(t);
+  if (act.kind === 'cauterHeal')
+    return t.side === u.side && (d === 0 || (d === 1 && adjOk(from, t))) && openWounds(t).length > 0;
   if (t.id === u.id) return false;
   if (act.kind === 'swap') return t.side === u.side && d === 1 && adjOk(from, t) && sz(t) === 1 && true && true && true;
   if (act.kind === 'ordnow' || act.kind === 'ordback')
@@ -195,12 +206,28 @@ export function canTarget0(u: Unit, act: Action, t, from, friendly?) {
     if (act.fireSrc && hasEff(u, 'magsight') && !(d <= act.range && los(from, t, u).ok))
       return fireSources().some(s => hd(s.x, s.y, t.x, t.y) <= 3 && fireLine(s, t) && fireLine(s, from));
     if (d > act.range) return false;
-    return los(from, t, u, { ignoreFriendly: !!act.ignoreFriendlyLos }).ok;
+    if (los(from, t, u, { ignoreFriendly: !!act.ignoreFriendlyLos }).ok) return true;
+    return !!screenFor(u, act, t, from);
   }
   const reach = act.reach || 1;
   if (d > reach) return false;
   if (d > 1) return reachClear(from, t, u);
   return d === 1 && adjOk(from, t);
+}
+/* Выстрел через плечо союзника (свод 2.4): только обычный физический выстрел, не дальше 3 свободных гексов до союзника.
+   ИИ стреляет так только вплотную или через 1 гекс и не рискует союзником на пороге или с серьёзной раной. */
+export function screenFor(u: Unit, act, t, from?) {
+  if (!SET.allyFire || !act.ranged || act.magic || !t) return null;
+  const s = allyScreen(from || u, t, u);
+  if (!s) return null;
+  if (!s.ally) return s;
+  if (s.free > 3) return null;
+  if (!isHuman(u.side)) {
+    const al = s.ally;
+    if (s.free > 1 || onEdge(al) || painOf(al) >= limOf(al) - 1) return null;
+    if (Object.values(al.wounds || {}).some((w: any) => w.deg >= 2)) return null;
+  }
+  return s;
 }
 export function validCell(u: Unit, a, x, y) {
   if (
@@ -221,6 +248,8 @@ export function validCell(u: Unit, a, x, y) {
     return !d.locked;
   }
   if (a.kind === 'objectStrike' || a.kind === 'objectPush') return canTerrainAct(u, a.kind, { x, y });
+  if (a.kind === 'hop')
+    return isFloor(x, y) && !unitAt(x, y) && footFree(u, x, y) && isFinite(stepCost(u.x, u.y, x, y, 0));
   return false;
 }
 export function validThrow(u: Unit, a, c) {
@@ -319,12 +348,17 @@ export function hasTargets(u: Unit, id) {
       );
     case 'revive':
       return S.units.some(o => canTarget(u, a, o));
+    case 'cauterHeal':
+      return S.units.some(o => canTarget(u, a, o));
     case 'trap':
       return trapCells(u).length > 0;
     case 'door':
     case 'objectStrike':
     case 'objectPush':
+    case 'hop':
       return ringCells(u).some(c => validCell(u, a, c.x, c.y));
+    case 'sweepAll':
+      return S.units.some(o => !o.down && o !== u && near1(u, o));
     default:
       return true;
   }
@@ -336,16 +370,26 @@ export async function perform(u: Unit, id, tgt?) {
   const a = A[id];
   if (!okAct(u, id)) return false;
   if (
-    ['attack', 'swap', 'bandage', 'push', 'curse2', 'habits', 'ordnow', 'ordback', 'revive'].includes(a.kind) &&
+    ['attack', 'swap', 'bandage', 'cauterHeal', 'push', 'curse2', 'habits', 'ordnow', 'ordback', 'revive'].includes(
+      a.kind,
+    ) &&
     tgt &&
     !canTarget(u, a, tgt)
   )
     return false;
   if (a.kind === 'flash' && !(tgt && validFlash(u, tgt))) return false;
   if (a.kind === 'trap' && !(tgt && validTrap(u, tgt))) return false;
-  if ((a.kind === 'objectStrike' || a.kind === 'objectPush') && !(tgt && validCell(u, a, tgt.x, tgt.y))) return false;
-  /* полное укрытие держится до следующего своего действия */
-  if (u.covered && id !== 'coverFull') u.covered = false;
+  if (
+    (a.kind === 'objectStrike' || a.kind === 'objectPush' || a.kind === 'hop') &&
+    !(tgt && validCell(u, a, tgt.x, tgt.y))
+  )
+    return false;
+  /* полное укрытие держится до следующего своего действия; выходящего из укрытия встречает подготовленный выстрел */
+  if (u.covered && id !== 'coverFull') {
+    u.covered = false;
+    await v2PrepCheck(u, { ranged: true });
+    if (u.down || S.over) return true;
+  }
   if (a.kind === 'move') return performMove(u, tgt.x, tgt.y);
   if (u.guilt && u.guilt.stage === 'band' && id === 'bandage' && tgt && tgt.id !== u.guilt.id) return false;
   if (u.mustAttack && disOf(u, 'aggr') === 2 && a.kind === 'attack' && !a.magic && u.side === S.phase) {
@@ -458,8 +502,9 @@ export async function perform(u: Unit, id, tgt?) {
       break;
     case 'attack': {
       if (a.needLoad) u.loaded = false;
+      if (a.needSpin) u.spun = 0;
       let reps = a.repeats || 1;
-      if (a.lasso) await chooseSnarePart(u, a, tgt);
+      if (a.lasso && !a.lassoPart) await chooseSnarePart(u, a, tgt);
       for (let i = 0; i < reps; i++) {
         if (tgt.down || u.down || S.over) break;
         await resolveAttack(u, a, tgt, {
@@ -471,6 +516,9 @@ export async function perform(u: Unit, id, tgt?) {
     }
     case 'wswap':
       doWield(u, nextWeapon(u));
+      break;
+    case 'cauterHeal':
+      if (await distrustOk(u, tgt, 'прижигание')) await doCauterHeal(u, tgt);
       break;
     case 'pair': {
       const ts = pairTargets(u, tgt);
@@ -485,10 +533,10 @@ export async function perform(u: Unit, id, tgt?) {
       break;
     }
     case 'bandage':
-      doBandage(u, tgt, a);
+      if (await distrustOk(u, tgt, 'перевязка')) doBandage(u, tgt, a);
       break;
     case 'revive':
-      doRevive(u, tgt);
+      if (await distrustOk(u, tgt, 'привести в чувство')) doRevive(u, tgt);
       break;
     case 'trap':
       u.traps--;
@@ -527,6 +575,28 @@ export async function perform(u: Unit, id, tgt?) {
       break;
     case 'objectStrike':
       objectStrike(u, tgt);
+      break;
+    case 'hop':
+      u._hopTurn = u.turnNo;
+      ev(`↩ ${uName(u)}: отскок — без удара из зоны контроля`);
+      await walk(u, [[tgt.x, tgt.y]], { noZoc: true });
+      break;
+    case 'sweepAll': {
+      /* круговой удар по всем шести соседям, и по своим тоже */
+      const ts = S.units.filter(o => !o.down && o !== u && near1(u, o));
+      ev(`🌀 ${uName(u)}: ${a.name} — по всем вокруг (${ts.length})`);
+      for (const t of ts) {
+        if (t.down || u.down || S.over) continue;
+        await resolveAttack(u, a, t, { noCover: true });
+      }
+      break;
+    }
+    case 'spin':
+      u.prep = { kind: 'strike', spin: true };
+      u.spun = S.round;
+      ev(
+        `🌀 ${uName(u)} раскручивает цепь: вошедшего рядом встретит удар; без перехвата — в следующий ход бросок на 2 гекса. От выстрелов не защищается`,
+      );
       break;
     case 'objectPush':
       objectPush(u, tgt);
@@ -599,7 +669,11 @@ export async function performMove(u: Unit, x, y) {
   const cost = v.d <= sp ? 1 : 2;
   if (cost > u.od) return false;
   interrupt(u, 'добровольное перемещение');
-  if (u.covered) u.covered = false;
+  if (u.covered) {
+    u.covered = false;
+    await v2PrepCheck(u, { ranged: true });
+    if (u.down || S.over) return true;
+  }
   u.od -= cost;
   u._acted = true;
   log(`${esc(u.name)}: перемещение на ${v.d} кл. (${cost} ОД)`, 'mv');
@@ -700,7 +774,8 @@ export function trapCheck(u: Unit) {
   if (S.stat) S.stat.trap = (S.stat.trap || 0) + 1;
   applyDamage(u, dmg, null);
   if (!u.down) {
-    u.bleed++;
+    u.bleedX = (u.bleedX || 0) + 1;
+    syncBleed(u);
     if (sz(u) === 1) {
       u.effects = u.effects.filter(e => e.type !== 'snare');
       u.effects.push({
@@ -872,4 +947,27 @@ export function doDoor(u: Unit, c) {
 }
 export function canControl(u: Unit) {
   return !!u && !u.down && !S.over && !S.busy && !S.editor && u.side === S.phase && isHuman(u.side);
+}
+
+/* Прижигание Хельги (свод 2.4, §11.4): 1 Боль сквозь броню, затем закрывается одна выбранная открытая рана. */
+export async function doCauterHeal(u: Unit, t) {
+  const ws = openWounds(t).sort((x, y) => y[1].deg - x[1].deg);
+  if (!ws.length) return;
+  let ar = ws[0][0];
+  if (ws.length > 1 && isHuman(u.side) && !S.sim) {
+    const v = await view.askChoice(
+      'Прижигание',
+      `<p>Какую открытую рану ${t === u ? 'себе' : uName(t)} закрыть?</p>`,
+      ws.map(([a, w]) => ({ v: a, label: AREA_RU[a], sub: WDEG_RU[w.deg] })),
+    );
+    if (v) ar = v;
+  }
+  ev(
+    `🔥 Прижигание: ${uName(u)} прижигает ${t === u ? 'себе' : 'ране ' + uName(t)} — ${AREA_RU[ar]}, 1 Боль сквозь броню`,
+  );
+  applyDamage(t, 1, null);
+  const w = t.wounds[ar];
+  if (w) w.open = false;
+  syncBleed(t);
+  view.fxText(t, 'прижигание', 'heal');
 }

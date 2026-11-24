@@ -15,7 +15,7 @@ import {
   validCell,
   validThrow,
 } from '../rules/actions';
-import { stOf } from '../rules/combat';
+import { meleeInHand, stOf } from '../rules/combat';
 import { disOf, guiltCell, obsessLock } from '../rules/disorders';
 import {
   bfs,
@@ -29,12 +29,13 @@ import {
   pairOptions,
   pathTo,
   posOf,
+  ringCells,
   unitAt,
 } from '../rules/geometry';
-import { lassoPart } from '../rules/lasso';
+import { lassoPart, lassoTarget } from '../rules/lasso';
 import { hiddenFrom, unitLight } from '../rules/light';
 import { log, sleep } from '../rules/log';
-import { onEdge } from '../rules/pain';
+import { limOf, onEdge, painOf } from '../rules/pain';
 import { RANGE_OPT, openT } from '../rules/reactions';
 import { AREA_BUFF, areaHasTarget, hasEff, hitCalc, isArea, speedOf, stat } from '../rules/stats';
 import { careNeed, needsCare } from '../rules/wounds';
@@ -197,6 +198,17 @@ export function aiSupport(u: Unit, foes) {
       return {
         id: 'bandage',
         t: best.t,
+      };
+  }
+  /* Прижигание (Хельга): если бинтов нет, останавливает кровотечение — себе, соседу или лежащему без сознания */
+  if (okAct(u, 'cauterHeal') && !okAct(u, 'bandage')) {
+    const cand = [...S.units.filter(o => o.side === u.side && o.down && o.ko && !o.dead), u, ...friends(u)].filter(
+      o => o.bleed > 0 && canTarget(u, A.cauterHeal, o) && (o.down || painOf(o) < limOf(o) - 1),
+    );
+    if (cand.length)
+      return {
+        id: 'cauterHeal',
+        t: cand[0],
       };
   }
   if (!onEdge(u)) {
@@ -762,5 +774,88 @@ Object.assign(AI, {
     )
       return await perform(u, 'aimReady');
     return AI.pShoot(u, foes);
+  },
+});
+
+/* ---------- Тюремный блок (свод 2.3–2.4, §8.6) ---------- */
+/* Цель для фланкера: сбитые, открытые (без активной защиты), без прикрытия рядом, раненые. */
+function flankScore(t: Unit) {
+  const guarded = friends(t).some(o => !o.down && cheb(o, t) === 1 && (tplOf(o).guardian || o.shield > 0));
+  return (t.prone ? 4 : 0) + (openT(t) ? 3 : 0) + (guarded ? 0 : 2) + (1 - t.hp / t.maxHp) * 1.5;
+}
+Object.assign(AI, {
+  /* Узник с ножом: быстрый фланкер — бьёт сбитых, открытых и неприкрытых; после удара, если рядом двое, — отскок. */
+  async pKnife(u: Unit, foes) {
+    const adj = foes.filter(f => near1(u, f));
+    if (adj.length >= 2 && u._ai.hit && okAct(u, 'hop')) {
+      const cells = ringCells(u).filter(c => validCell(u, A.hop, c.x, c.y));
+      const best = cells
+        .map(c => ({ c, n: foes.filter(f => cheb(c, f) === 1).length, d: Math.min(...foes.map(f => cheb(c, f))) }))
+        .sort((a, b) => a.n - b.n || b.d - a.d)[0];
+      if (best && best.n < adj.length) return await perform(u, 'hop', best.c);
+    }
+    if (adj.length && okAct(u, 'knife')) {
+      const ts = adj.filter(t => canTarget(u, A.knife, t)).sort((a, b) => flankScore(b) - flankScore(a));
+      if (ts.length) {
+        u._ai.hit = true;
+        return await perform(u, 'knife', ts[0]);
+      }
+    }
+    if (!adj.length && okAct(u, 'move') && !u._ai.mv) {
+      u._ai.mv = true;
+      const t = foes.slice().sort((a, b) => flankScore(b) - flankScore(a) || cheb(u, a) - cheb(u, b))[0];
+      if (t) return await aiApproach(u, 'knife', t);
+    }
+    return false;
+  },
+  /* Узник с цепью: рядом двое и больше — круговой удар (своих не бережёт); рядом один — цепь; после раскрутки — бросок
+     на 2 гекса; герои подходят — раскрутка. */
+  async pChain(u: Unit, foes) {
+    const adj = foes.filter(f => near1(u, f));
+    if (adj.length >= 2 && okAct(u, 'chainSweep')) return await perform(u, 'chainSweep');
+    if (okAct(u, 'chainThrow')) {
+      const ts = targetsFor(u, 'chainThrow');
+      if (ts.length) return await perform(u, 'chainThrow', enemyPick(u, ts));
+    }
+    if (adj.length && okAct(u, 'chain')) {
+      const ts = adj.filter(t => canTarget(u, A.chain, t));
+      if (ts.length) return await perform(u, 'chain', enemyPick(u, ts));
+    }
+    const near = foes.filter(f => cheb(u, f) <= 3);
+    if (!adj.length && near.length && !u.prep && okAct(u, 'chainSpin') && u.od >= 1 && u._ai.mv)
+      return await perform(u, 'chainSpin');
+    if (!adj.length && okAct(u, 'move') && !u._ai.mv) {
+      u._ai.mv = true;
+      const t = nearestFoe(u, foes, 'chain');
+      if (t) {
+        /* подходит на расстояние раскрутки, а не вплотную */
+        if (cheb(u, t) <= 3 && okAct(u, 'chainSpin')) return await perform(u, 'chainSpin');
+        return await aiApproach(u, 'chain', t);
+      }
+    }
+    if (!adj.length && !u.prep && okAct(u, 'chainSpin') && near.length) return await perform(u, 'chainSpin');
+    return false;
+  },
+  /* Тюремщик: держит одну вооружённую руку и бьёт дубинкой; пока держит — не двигается. */
+  async pJailer(u: Unit, foes) {
+    const held = lassoTarget(u),
+      adj = foes.filter(f => near1(u, f));
+    if (!held && adj.length && okAct(u, 'armGrab')) {
+      const t = adj
+        .filter(f => canTarget(u, A.armGrab, f) && meleeInHand(f) && !hasEff(f, 'lasso'))
+        .sort((a, b) => b.base.str - a.base.str)[0];
+      if (t) return await perform(u, 'armGrab', t);
+    }
+    if (adj.length && okAct(u, 'jailClub')) {
+      const ts = adj.filter(t => canTarget(u, A.jailClub, t));
+      const t = held && ts.includes(held) ? held : enemyPick(u, ts);
+      if (t) return await perform(u, 'jailClub', t);
+    }
+    if (!held && !adj.length && okAct(u, 'move') && !u._ai.mv) {
+      u._ai.mv = true;
+      const t = nearestFoe(u, foes, 'jailClub');
+      if (t) return await aiApproach(u, 'jailClub', t);
+    }
+    return false;
   },
 });

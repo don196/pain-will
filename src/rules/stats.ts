@@ -54,7 +54,7 @@ export function stat(u: Unit, s) {
   if (s === 'main') return stat(u, mainKey(u));
   let v = u.base[s];
   const hs = partSt(u, 'head');
-  if (hs && s === 'cha') v -= 2 * hs;
+  if (hs && (s === 'cha' || s === 'int')) v -= hs;
   if (u.disorder) {
     const f = disForm(u);
     if (f) {
@@ -328,12 +328,14 @@ export function hitCalc(att: Unit, act: Action, def: Unit, opt: Opts = {}) {
     p = [0, 0, 0, 0];
   let E = 0;
   const dm = [0, 1, 2, 3].map(t => (t ? dmgAfter(att, act, def, t) : 0));
+  const nat = !!SET.natRolls;
   for (let r = 1; r <= 20; r++) {
-    if (r <= th.v || (sh && r === 1)) {
+    if (r <= th.v || (sh && r === 1) || (nat && r === 1)) {
       p[0]++;
       continue;
     }
     let t = ap3Degree(r + M - R).t;
+    if (nat && r === 20) t = Math.min(3, t + 1);
     p[t]++;
     E += dm[t];
   }

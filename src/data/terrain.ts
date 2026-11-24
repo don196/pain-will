@@ -7,6 +7,8 @@ export interface TerrDef {
   cover?: boolean; // укрытие от стрельбы
   opaque?: boolean; // закрывает обзор и свет
   slow?: boolean; // шаг стоит 2 клетки
+  slowOD?: boolean; // вход стоит ещё 1 ОД (стул)
+  two?: boolean; // занимает 2 гекса (кровать, скамья)
   push?: boolean; // можно толкнуть
   liquid?: 'wet' | 'oil'; // разливается, когда разбита
   solidCargo?: boolean; // разбитая оставляет завал
@@ -21,9 +23,9 @@ export interface TerrDef {
 
 export const TERRAIN: Record<string, TerrDef> = {
   table: { name: 'Перевёрнутый стол', hp: 12, solid: true, cover: true, tint: '#aa8754', tall: 0.34 },
-  chair: { name: 'Стул', hp: 4, slow: true, tint: '#ae8055', tall: 0.3 },
-  bed: { name: 'Кровать', hp: 10, solid: true, cover: true, tint: '#7c6b62', tall: 0.26 },
-  bench: { name: 'Скамья', hp: 8, solid: true, cover: true, tint: '#96805d', tall: 0.22 },
+  chair: { name: 'Стул', hp: 4, slowOD: true, push: true, tint: '#ae8055', tall: 0.3 },
+  bed: { name: 'Кровать', hp: 10, solid: true, cover: true, two: true, tint: '#7c6b62', tall: 0.26 },
+  bench: { name: 'Скамья', hp: 8, solid: true, cover: true, two: true, tint: '#96805d', tall: 0.22 },
   cupboard: { name: 'Шкаф', hp: 14, solid: true, opaque: true, tint: '#755641', tall: 0.95 },
   rotten: { name: 'Гнилая бочка', hp: 8, solid: true, push: true, tint: '#9b7047', tall: 0.42 },
   waterbarrel: { name: 'Бочка с водой', hp: 16, solid: true, push: true, liquid: 'wet', tint: '#5597ba', tall: 0.42 },
@@ -45,7 +47,7 @@ export const TERRAIN: Record<string, TerrDef> = {
   collapse: { name: 'Обрушаемый пол', hp: null, collapse: true, tint: '#876a57' },
   wet: { name: 'Разлив воды', hp: null, water: 0, tint: '#518da4' },
   oil: { name: 'Разлив горючей жидкости', hp: null, tint: '#95754b' },
-  burning: { name: 'Горящая поверхность', hp: null, fire: true, tint: '#c86029' },
+  burning: { name: 'Горящая поверхность', hp: null, fire: true, tint: '#c86029' }, // горит 3 раунда
   rubble: { name: 'Твёрдый завал', hp: 8, solid: true, tint: '#777777', tall: 0.36 },
 };
 
@@ -83,9 +85,13 @@ export function TERRAIN_HINT(d: TerrDef) {
   if (d.water === 2) out.push('шаг стоит 2 клетки, −8 к действиям (кроме голоса) и к защите, гасит Нагрев');
   if (d.water === 0) out.push('лужа: Нагрев не копится');
   if (d.slow && d.water == null) out.push('шаг стоит 2 клетки');
-  if (d.spikes) out.push('протащенный по шипам получает +1 Боль сквозь броню');
-  if (d.collapse) out.push('наступишь — участок обрушится на 2 уровня вниз');
-  if (d.fire) out.push('Нагрев +2, когда встаёшь сюда и в конце своего хода');
+  if (d.slowOD) out.push('встать сюда — ещё 1 ОД; толкается: d20 + Сила против 15');
+  if (d.two) out.push('занимает 2 гекса');
+  if (d.cover) out.push('закрывает свет');
+  if (d.spikes)
+    out.push('протащенный по шипам: +1 Боль сквозь броню за гекс, с 2 гексов за одно перемещение — ещё и рана');
+  if (d.collapse) out.push('наступишь — связный участок обрушится ямой с пологими краями');
+  if (d.fire) out.push('Нагрев +2, когда встаёшь сюда и в конце своего хода; гаснет через 3 раунда или от воды');
   if (d === TERRAIN.oil) out.push('огонь по стоящему здесь поджигает пол');
   return out.join('; ');
 }

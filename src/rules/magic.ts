@@ -7,7 +7,7 @@ import { disOf, isLit } from './disorders';
 import { blocksLight, cellsOf, inB, torchAt, unitAt } from './geometry';
 import { ev, log, uName } from './log';
 import { composure } from './pain';
-import { ap3Degree, missThr } from './reactions';
+import { ap3Degree, missThr, nat1Side, nat20Up } from './reactions';
 import { getEff, hasEff, modsStr, removeEff, stat } from './stats';
 import { SET } from '../settings';
 import { S } from '../state';
@@ -73,14 +73,17 @@ export function doCurse3(u: Unit, t, a, id) {
     tot = r + c.M,
     diff = tot - c.R,
     cf = selfHateHit(u) && r === 1,
-    miss = cf || (c.th.v && r <= c.th.v);
-  const dg = miss ? null : ap3Degree(diff);
+    n1 = SET.natRolls && r === 1 && !cf,
+    miss = cf || n1 || (c.th.v && r <= c.th.v);
+  let dg = miss ? null : ap3Degree(diff);
+  if (dg && SET.natRolls && r === 20) dg = nat20Up(dg);
   log(
     `<div class="lh">${uName(u)} → ${uName(t)} · ${a.name}</div><div class="lr">d20 <b>${r}</b>${modsStr(c.mods)} = <b>${tot}</b> против ${'Самообладания'} <b>${c.R}</b>${c.th.v ? ` · порог промаха ${c.th.v} (${c.th.src})` : ''}</div><div class="lo"><span class="chip ${miss ? 'fail' : dg.c}">${cf ? 'критический провал' : miss ? 'промах' : `разница ${sgn(diff)} · ${dg.txt}`}</span></div>`,
     'atk',
   );
   view.fxLine(u, t, 'fire');
   if (cf) backlash(u, a);
+  if (n1) nat1Side(u, a);
   if (miss) return;
   if (id === 'curseVuln') {
     removeEff(t, 'vuln2');
@@ -158,13 +161,16 @@ export function spellRoll(u: Unit, a) {
     r = d20(),
     tot = r + sum(mods),
     diff = tot - dc,
-    cf = selfHateHit(u) && r === 1;
-  const t = cf ? 0 : diff < 0 ? 0 : diff >= 10 ? 3 : diff >= 5 ? 2 : 1;
+    cf = selfHateHit(u) && r === 1,
+    n1 = SET.natRolls && r === 1 && !cf;
+  let t = cf || n1 ? 0 : diff < 0 ? 0 : diff >= 10 ? 3 : diff >= 5 ? 2 : 1;
+  if (SET.natRolls && r === 20 && t >= 1) t = Math.min(3, t + 1);
   log(
     `<div class="lh">${uName(u)} · ${esc(a.name)}</div><div class="lr">d20 <b>${r}</b>${modsStr(mods)} = <b>${tot}</b> против сложности <b>${dc}</b></div><div class="lo"><span class="chip ${cf || !t ? 'fail' : ['', 'ok', 'enh', 'crit'][t]}">${cf ? 'критический провал' : !t ? 'провал' : ['', 'обычный успех', 'усиленный успех', 'критический успех'][t]}</span></div>`,
     'atk',
   );
   if (cf) backlash(u, a);
+  if (n1) nat1Side(u, a);
   return t;
 }
 

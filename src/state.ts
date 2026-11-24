@@ -240,8 +240,21 @@ export function parseScenario(id) {
       if (!def) continue;
       /* сплошные предметы не появляются под бойцом */
       if (def.solid && list.some(u => footCells(u.x, u.y, u.size || 1).some(p => p.x === x && p.y === y))) continue;
+      if (terrain[k] && terrain[k].link) continue;
       terrain[k] = { type: layer.type, hp: def.hp == null ? null : def.hp };
       if (layer.type === 'collapse') terrain[k].depth = layer.depth || 2;
+      if (layer.type === 'burning') terrain[k].left = 3;
+      /* кровать и скамья — два гекса: вторая клетка справа (или как задано в layer.dir) */
+      if (def.two) {
+        const [dx, dy] = layer.dir || [1, 0],
+          x2 = x + dx,
+          y2 = y + dy,
+          k2 = key(x2, y2);
+        if (x2 >= 0 && y2 >= 0 && x2 < W && y2 < H && !wset.has(k2) && !terrain[k2]) {
+          terrain[k2] = { type: layer.type, hp: null, link: [x, y] };
+          terrain[k].part = [x2, y2];
+        }
+      }
     }
   return {
     scn: id,

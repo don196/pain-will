@@ -1,24 +1,59 @@
 import type { Unit } from '../types';
 import { A, ATTACK_KINDS } from '../data/actions';
 import { DIS, DISP, DIS_ICON } from '../data/disorders';
-import { canTarget, hasTargets, okAct } from './actions';
-import { bfs, near1, posOf } from './geometry';
+import { canTarget, hasTargets, okAct, zocWeapon } from './actions';
+import { resolveAttack } from './attack';
+import { stat } from './stats';
+import { bfs, los, near1, posOf } from './geometry';
 import { unitLight } from './light';
 import { ev, uName } from './log';
 import { areaHasTarget, isArea, speedOf } from './stats';
 import { needsCare, openWounds } from './wounds';
 import { S, byId, hostiles } from '../state';
-import { cheb, esc, unkey } from '../util';
+import { cheb, d20, esc, unkey } from '../util';
 export function disForm(u: Unit) {
   if (!u || !u.disorder || u.will == null) return 0;
   if (u.forceF != null) {
     return u.forceF;
   }
-  if (u.will <= -20) return 2;
-  if (u.will <= -10) return 1;
+  if (u.will < WILL_STRONG) return 2;
+  if (u.will < WILL_WEAK) return 1;
   return 0;
 }
+/* Воля (решение 23.11): шкала 0–35, старт 30. Ниже 20 — лёгкая форма расстройства, ниже 10 — серьёзная. */
+export const WILL_MIN = 0,
+  WILL_MAX = 35,
+  WILL_WEAK = 20,
+  WILL_STRONG = 10;
 export const disOf = (u: Unit, k) => (u && u.disorder === k ? disForm(u) : 0);
+
+/* События Воли (свод 2.4 + решение 23.11: меняется и прямо в бою). Одно событие засчитывается один раз:
+   если союзник сначала потерял сознание, а потом погиб, свидетель теряет всего 5. */
+export function willEvent(u: Unit, delta, why, key?) {
+  if (!S || !u || u.will == null || u.dead) return;
+  if (key) {
+    S.willSeen = S.willSeen || {};
+    const k = u.id + ':' + key;
+    if (S.willSeen[k] != null) {
+      delta -= S.willSeen[k];
+      if (!delta) return;
+    }
+    S.willSeen[k] = (S.willSeen[k] || 0) + delta;
+  }
+  changeWill(u, delta, why);
+}
+/* Свидетели: союзники в сознании, которые видят пострадавшего. */
+export function witnesses(v: Unit) {
+  return S.units.filter(
+    o => o !== v && o.side === v.side && !o.down && o.will != null && los(o, v, o, { noUnits: true }).ok,
+  );
+}
+export function witnessDown(v: Unit) {
+  if (v.side !== 'pc') return;
+  for (const o of witnesses(v))
+    if (v.dead) willEvent(o, -5, `Гибель ${v.name}`, 'lost:' + v.id);
+    else willEvent(o, -2, `${v.name} без сознания`, 'lost:' + v.id);
+}
 
 /* Недоверие действует и у Недоверия/Паранойи, и у Безумия (как слабая форма — без внеочередной атаки). */
 export const woundedT = t => !!t && (t.bleed > 0 || openWounds(t).length > 0);
@@ -148,7 +183,8 @@ export function changeWill(u: Unit, delta, why) {
   }
   const f0 = disForm(u),
     w0 = u.will;
-  u.will += delta;
+  u.will = Math.max(WILL_MIN, Math.min(WILL_MAX, u.will + delta));
+  if (u.will === w0) return;
   const f1 = disForm(u);
   if (S.stat && f1) {
     S.stat.dis = S.stat.dis || {};
@@ -161,8 +197,36 @@ export function changeWill(u: Unit, delta, why) {
         ? `${DIS_ICON[u.disorder]} ${uName(u)}: ${DIS[u.disorder][f1 - 1]} (${f1 === 1 ? 'слабая' : 'сильная'} форма)`
         : `${uName(u)}: расстройство отступило`,
     );
-  else if (!u.disorder && u.will <= -10 && w0 > -10)
+  else if (!u.disorder && u.will < WILL_WEAK && w0 >= WILL_WEAK)
     ev(
       `<span class="dim">${uName(u)}: порог расстройства пройден, но расстройство не назначено — выберите его в карточке</span>`,
     );
+}
+
+/* Недоверие (свод 2.4, §11.4): триггер — положительное воздействие СОЮЗНОЙ способности на героя:
+   приказы, «Прикрыть»/«Перехват», перевязка, прижигание, приведение в чувство. Собственная защита не в счёт.
+   Помогающий проверяет d20 + Харизма − 3 против 10 + Интуиция недоверчивого; провал — помощь на него не действует.
+   Паранойя: при провале он ещё и бьёт ближайшего соседнего союзника внеочередной базовой атакой без ОД. */
+export async function distrustOk(helper: Unit, t: Unit, why) {
+  if (!t || !helper || helper === t || helper.side !== t.side) return true;
+  const f = disOf(t, 'distrust');
+  if (!f) return true;
+  const r = d20(),
+    tot = r + stat(helper, 'cha') - DISP.distrust.pen,
+    dc = 10 + stat(t, 'int'),
+    ok = tot >= dc;
+  ev(
+    `${DIS_ICON.distrust} ${DIS.distrust[f - 1]}: ${uName(t)} не доверяет помощи (${esc(why)}) — ${uName(helper)} d20 <b>${r}</b> + Харизма − ${DISP.distrust.pen} = <b>${tot}</b> против ${dc}: ${ok ? 'принял' : 'отверг'}`,
+  );
+  if (!ok && f === 2 && !t.down) {
+    const al = S.units
+      .filter(o => !o.down && o.side === t.side && o !== t && near1(t, o))
+      .sort((a, b) => cheb(t, a) - cheb(t, b))[0];
+    const id = al && zocWeapon(t, al);
+    if (id) {
+      ev(`${DIS_ICON.distrust} Паранойя: ${uName(t)} бьёт ${uName(al)}`);
+      await resolveAttack(t, A[id], al, { free: true, noCover: true });
+    }
+  }
+  return ok;
 }

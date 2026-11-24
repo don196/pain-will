@@ -9,14 +9,20 @@ import { cheb, pct, sum } from '../util';
 import { view } from '../view';
 
 export const LASSO_R = 3;
+/* Длина привязи: силок — 3 гекса, захват рукой (тюремщик) — вплотную. */
+export function leashR(h) {
+  const t = h && h.lassoT ? byId(h.lassoT) : null,
+    e = t && getEff(t, 'lasso');
+  return e && e.grip ? 1 : LASSO_R;
+}
 
 export function lassoSnap(t) {
   if (t.down) return;
   const e = getEff(t, 'lasso'),
     h = e && byId(e.by);
-  if (h && cheb(h, t) > LASSO_R) {
-    releaseLasso(h, 'цель отбросили дальше длины силка');
-    addSt(t, 'unst', 1, 'сорванный силок');
+  if (h && cheb(h, t) > leashR(h)) {
+    releaseLasso(h, e.grip ? 'цель вырвали из захвата' : 'цель отбросили дальше длины силка');
+    if (!e.grip) addSt(t, 'unst', 1, 'сорванный силок');
   }
 }
 
@@ -91,7 +97,7 @@ export const SNARE_PART = {
   },
   head: {
     l: 'голова',
-    v: -2,
+    v: -4,
   },
 };
 
@@ -116,7 +122,7 @@ export async function chooseSnarePart(u: Unit, a, t) {
         SNARE_PART[k].l[0].toUpperCase() +
         SNARE_PART[k].l.slice(1) +
         (SNARE_PART[k].v ? ` (${SNARE_PART[k].v})` : ' (без штрафа)'),
-      sub: `успех ${pct(snareP(u, a, t, SNARE_PART[k].v))}${k === 'head' ? ' · Кашель и 2 урона в конце каждого хода цели' : k === 'leg' ? ' · обездвиживание' : k === 'armR' ? ' · обездвиживание, оружием в этой руке не ударить' : ' · обездвиживание, щитом не закрыться'}`,
+      sub: `успех ${pct(snareP(u, a, t, SNARE_PART[k].v))}${k === 'head' ? ' · обездвиживание, Кашель и 1 Боль сквозь броню в конце каждого хода цели' : k === 'leg' ? ' · обездвиживание' : k === 'armR' ? ' · обездвиживание, оружием в этой руке не ударить' : ' · обездвиживание, щитом не закрыться'}`,
     }));
   const v = await view.askChoice(
     'Силок: куда целиться',

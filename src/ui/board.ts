@@ -918,7 +918,7 @@ export function renderHL() {
             )
               add(x, y, d <= 1 ? 'arc' : 'rng');
           }
-    } else if (a.kind === 'door' || a.kind === 'objectStrike' || a.kind === 'objectPush') {
+    } else if (a.kind === 'door' || a.kind === 'objectStrike' || a.kind === 'objectPush' || a.kind === 'hop') {
       for (const c of ringCells(u)) if (validCell(u, a, c.x, c.y)) add(c.x, c.y, 'tgt');
     } else {
       if (a.ranged) {
@@ -995,7 +995,7 @@ export function renderHL() {
       }
       for (const t of S.units)
         if (canTarget(u, a, t))
-          addU(t, ['swap', 'bandage', 'ordnow', 'ordback', 'revive'].includes(a.kind) ? 'ally' : 'tgt');
+          addU(t, ['swap', 'bandage', 'cauterHeal', 'ordnow', 'ordback', 'revive'].includes(a.kind) ? 'ally' : 'tgt');
     }
   }
   if (!S.editor && u && !u.down) addU(u, 'selc');

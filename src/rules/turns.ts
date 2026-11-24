@@ -1,4 +1,4 @@
-import { terrainEndTurn } from './terrain';
+import { terrainEndTurn, terrainRound } from './terrain';
 import { runSideAI } from '../ai/ai';
 import { DIS, DIS_ICON } from '../data/disorders';
 import { EFF_RU } from '../data/labels';
@@ -64,18 +64,7 @@ export async function beginPhase() {
     }
   for (const u of S.units) if (u.side === S.phase && u.down && u.ko && !u.dead) koTick(u);
   for (const u of alive(S.phase)) {
-    const add = tickWounds(u, true);
-    if (u.bleed > 0) {
-      u.bleed--;
-      ev(
-        `🩸 ${uName(u)}: кровотечение — +1 Боль${add ? `, открытые раны +${add} стак` : ''}, стаков осталось ${u.bleed}`,
-        { k: 'bleed', u: u.id, n: 1 },
-      );
-      bloodAt(u, 1);
-      applyDamage(u, 1, null);
-      if (S.over) return;
-      if (u.down) continue;
-    }
+    tickWounds(u, true);
     u.prep = null;
     if (u.charge && u.charge.readyRound < S.round) u.charge = null;
     u._ai = {};
@@ -181,7 +170,15 @@ export async function endPhase() {
       applyDamage(u, 1, ls ? byId(ls.by) : null);
       if (S.over) return;
     }
+    if (u.spun && u.spun < S.round) u.spun = 0;
     if (!u.down) terrainEndTurn(u);
+    /* кровотечение (свод 2.4): +1 Боль в конце своего хода, если тяжесть открытых ран 2+ */
+    if (!u.down && u.bleed > 0) {
+      ev(`🩸 ${uName(u)}: кровотечение (тяжесть ${u.bleed}) — +1 Боль`, { k: 'bleed', u: u.id, n: 1 });
+      bloodAt(u, 1);
+      applyDamage(u, 1, null);
+      if (S.over) return;
+    }
     if (!u.down) decaySt(u);
     if (SET.edgeLast && u._lastTurn && !u.down && onEdge(u)) {
       u._lastTurn = false;
@@ -199,6 +196,7 @@ export async function endPhase() {
   }
 }
 export async function endRound() {
+  terrainRound();
   for (const u of S.units) {
     const gone = u.effects.filter(e => e.end <= S.round);
     if (gone.length && !u.down)

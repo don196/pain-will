@@ -15,6 +15,8 @@ export const STAT_DAT = {
 export const LIGHT_RU = ['темнота', 'полутьма', 'свет'];
 export const EFF_RU = {
   bucklerOpen: 'Подбив баклером',
+  wet: 'Мокрый',
+  oily: 'Горючий',
   shake: 'Тряска',
   vuln: 'Уязвимость',
   cloud: 'Затуманенный разум',
