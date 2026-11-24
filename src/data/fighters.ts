@@ -308,65 +308,33 @@ Object.assign(T, {
 });
 Object.assign(CHAR_TPL, { p: 'infantry', q: 'spearman', r: 'crossbowman' });
 
-/* Тюремный блок (свод 2.3–2.4, §8.6): рабочие тестовые характеристики по Боли. Мастерства и Интуиция/Харизма не утверждены —
-   взяты рабочие значения полигона. */
+/* Тюремный блок, редакция на Боли 1.1 от 22.11.2026.
+   Мастерства, фиксированные стадии расстройств и порог бегства не утверждены:
+   для мастерства используется существующий fallback полигона; бегство по 30% HP отключено. */
 Object.assign(T, {
-  prisonerKnife: {
-    name: 'Узник с ножом',
-    glyph: 'Нж',
-    side: 'en',
-    str: 4,
-    dex: 7,
-    int: 3,
-    cha: 3,
-    con: 4,
-    mm: 4,
-    mr: 1,
-    will: null,
-    lim: 4,
-    armor: 0,
-    shield: 0,
-    speed: 4,
-    acts: ['move', 'knife', 'hop', 'push', 'standup', 'escape'],
-    ai: 'pKnife',
+  prisonKnife: {
+    name: 'Узник с ножом', glyph: 'Н', side: 'en',
+    str: 4, dex: 7, int: 3, cha: 1, con: 4, will: null,
+    lim: 4, hp: 4, armor: 0, shield: 0, speed: 4, torches: 2,
+    noFlee: true,
+    acts: ['move', 'prisonKnifeAttack', 'prisonBackstep', 'standup', 'escape', 'throwTorch', 'throwHeld'],
+    ai: 'pPrisonKnife',
   },
-  prisonerChain: {
-    name: 'Узник с цепью',
-    glyph: 'Цп',
-    side: 'en',
-    str: 8,
-    dex: 4,
-    int: 3,
-    cha: 3,
-    con: 4,
-    mm: 3,
-    mr: 1,
-    will: null,
-    lim: 5,
-    armor: 1,
-    shield: 0,
-    speed: 2,
-    acts: ['move', 'chain', 'chainSweep', 'chainSpin', 'chainThrow', 'standup', 'escape'],
-    ai: 'pChain',
+  prisonChain: {
+    name: 'Узник с цепью', glyph: 'Ц', side: 'en',
+    str: 8, dex: 4, int: 3, cha: 1, con: 4, will: null,
+    lim: 5, hp: 5, armor: 1, shield: 0, speed: 2, torches: 2,
+    noFlee: true, noParry: true,
+    acts: ['move', 'prisonChainAttack', 'prisonChainCircle', 'prisonChainReady', 'prisonChainThrow', 'standup', 'escape', 'throwTorch', 'throwHeld'],
+    ai: 'pPrisonChain',
   },
-  jailer: {
-    name: 'Тюремщик',
-    glyph: 'Тм',
-    side: 'en',
-    str: 8,
-    dex: 4,
-    int: 3,
-    cha: 3,
-    con: 4,
-    mm: 3,
-    mr: 1,
-    will: null,
-    lim: 6,
-    armor: 2,
-    shield: 0,
-    speed: 2,
-    acts: ['move', 'jailClub', 'armGrab', 'push', 'standup', 'escape'],
-    ai: 'pJailer',
+  prisonJailer: {
+    name: 'Тюремщик', glyph: 'Тр', side: 'en',
+    str: 8, dex: 4, int: 4, cha: 3, con: 4, will: null,
+    lim: 6, hp: 6, armor: 2, shield: 0, speed: 2, torches: 2,
+    noFlee: true,
+    acts: ['move', 'prisonJailerClub', 'prisonJailerGrab', 'prisonJailerRelease', 'standup', 'escape', 'throwTorch', 'throwHeld'],
+    ai: 'pPrisonJailer',
   },
 });
-Object.assign(CHAR_TPL, { n: 'prisonerKnife', g: 'prisonerChain', j: 'jailer' });
+Object.assign(CHAR_TPL, { N: 'prisonKnife', C: 'prisonChain', J: 'prisonJailer' });

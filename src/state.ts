@@ -181,6 +181,11 @@ export function parseScenario(id) {
     return null;
   };
   const party = (SET.party || []).filter(k => T[k]);
+  /* На картах тюремного блока из 4.5.6: Конрад и Вальтер впереди, Хельга сзади. */
+  if (sc.heroOrder) party.sort((a,b)=>{
+    const ai=sc.heroOrder.indexOf(a), bi=sc.heroOrder.indexOf(b);
+    return (ai<0?999:ai)-(bi<0?999:bi);
+  });
   party.forEach((tpl, i) => {
     if (!spawns.length) return;
     const c = spawns[i] && !occ(spawns[i].x, spawns[i].y) ? spawns[i] : freeNear(spawns[0]);

@@ -12,8 +12,7 @@ import { A, ATTACK_KINDS } from '../data/actions';
 import { DIS, DISP, DIS_ICON } from '../data/disorders';
 import { AREA_RU, WDEG_RU, WNAME } from '../data/labels';
 import { resolveAttack } from './attack';
-import { allyScreen, footFree } from './geometry';
-import { stepCost } from './height';
+import { allyScreen } from './geometry';
 import {
   doHabits,
   doOrderBack,
@@ -51,6 +50,7 @@ import { hiddenFrom } from './light';
 import { ev, log, sleep, uName } from './log';
 import { doCurse2, doFlash, fireLine, fireSources, spellRoll, validFlash } from './magic';
 import { doRevive, edgeOk, limOf, onEdge, painOf } from './pain';
+import { escapePrisonGrip, prisonChainCircle, prisonChainIntercept, releasePrisonGrip, tryPrisonGrab } from './prisoners';
 import { reactWants } from './reactions';
 import { checkDegree, getEff, hasEff, hitCalc, modsStr, removeEff, reqOk, speedOf, stat } from './stats';
 import { doBandage, needsCare, openWounds, syncBleed } from './wounds';
@@ -113,11 +113,6 @@ export function okAct(u: Unit, id, raw?) {
   if (a.cd && S.round < ((u.cd || {})[id] || 0)) return false;
   if (a.kind === 'revive' && u.side !== 'pc') return false;
   if (TERR_ACTS.includes(id) && (u.side !== 'pc' || !hasTerrain())) return false;
-  /* тюремщик, держащий руку, не двигается; бросок цепи — только после раскрутки без перехвата; отскок — раз за ход */
-  if (a.kind === 'move' && u.lassoT && lassoTarget(u) && getEff(lassoTarget(u), 'lasso')?.grip) return false;
-  if (a.needSpin && !(u.spun && u.spun < S.round)) return false;
-  if (a.kind === 'hop' && u._hopTurn === u.turnNo) return false;
-  if (a.grip && u.lassoT && lassoTarget(u)) return false;
   if (id === 'coverFull' && !hasLocalCover(u)) return false;
   if (onEdge(u) && !edgeOk(id, a)) return false;
   if (a.speech && hasEff(u, 'mute')) return false;
@@ -126,13 +121,17 @@ export function okAct(u: Unit, id, raw?) {
   if (a.lasso && lassoTarget(u)) return false;
   if (a.kind === 'prep' && u.prep) return false;
   if (a.kind === 'charge' && u.charge) return false;
+  if (a.kind === 'prisonGrab' && u.hold) return false;
+  if (a.kind === 'prisonRelease' && !u.hold) return false;
+  if (a.kind === 'prisonCircle' && !S.units.some(t => t !== u && !t.down && near1(u,t))) return false;
+  if (a.kind === 'move' && (u.grabbedBy != null || u.hold)) return false;
   if (a.requiresCharge && (!u.charge || u.charge.kind !== a.requiresCharge || S.round !== u.charge.readyRound))
     return false;
   if (a.requiresShield && !u.shield) return false;
   if (['move'].includes(a.kind) && hasEff(u, 'lasso')) return false;
-  if (ATTACK_KINDS.includes(a.kind) && !a.magic && !a.lasso && (partSt(u, 'armR') >= 3 || lassoPart(u) === 'armR'))
+  if (ATTACK_KINDS.includes(a.kind) && !a.magic && !a.lasso && (partSt(u, 'armR') >= 3 || lassoPart(u) === 'armR' || u.grabbedArm === 'armR'))
     return false;
-  const snared = hasEff(u, 'snare') || hasEff(u, 'lasso');
+  const snared = hasEff(u, 'snare') || hasEff(u, 'lasso') || u.grabbedBy != null;
   if (['move'].includes(a.kind) && snared) return false;
   if (a.ammo && !((u.ammo || {})[id] > 0)) return false;
   if (a.kind === 'trap' && !(u.traps > 0)) return false;
@@ -194,6 +193,7 @@ export function canTarget0(u: Unit, act: Action, t, from, friendly?) {
     return t.side === u.side && d <= (act.range || 2) && (act.kind === 'ordnow' || !immobile(t));
   if (!friendly && t.side === u.side) return false;
   if (act.kind === 'push') return d === 1 && adjOk(from, t) && sz(t) === 1;
+  if (act.kind === 'prisonGrab') return d === 1 && adjOk(from, t) && t.side !== u.side && t.grabbedBy == null;
   if (act.kind === 'curse2' || act.kind === 'habits') {
     if (hiddenFrom(u, t, from)) return false;
     return (act.kind === 'habits' || d <= (act.range || 3)) && los(from, t, u).ok;
@@ -209,6 +209,7 @@ export function canTarget0(u: Unit, act: Action, t, from, friendly?) {
     if (los(from, t, u, { ignoreFriendly: !!act.ignoreFriendlyLos }).ok) return true;
     return !!screenFor(u, act, t, from);
   }
+  if (act.onlyDistance != null && d !== act.onlyDistance) return false;
   const reach = act.reach || 1;
   if (d > reach) return false;
   if (d > 1) return reachClear(from, t, u);
@@ -248,8 +249,6 @@ export function validCell(u: Unit, a, x, y) {
     return !d.locked;
   }
   if (a.kind === 'objectStrike' || a.kind === 'objectPush') return canTerrainAct(u, a.kind, { x, y });
-  if (a.kind === 'hop')
-    return isFloor(x, y) && !unitAt(x, y) && footFree(u, x, y) && isFinite(stepCost(u.x, u.y, x, y, 0));
   return false;
 }
 export function validThrow(u: Unit, a, c) {
@@ -326,6 +325,12 @@ export function hasTargets(u: Unit, id) {
       return targetsFor(u, id).length > 0;
     case 'charge':
       return !u.charge;
+    case 'prisonGrab':
+      return targetsFor(u,id).length > 0;
+    case 'prisonCircle':
+      return S.units.some(t => !t.down && t !== u && near1(u,t));
+    case 'prisonRelease':
+      return !!u.hold;
     case 'push':
     case 'curse2':
     case 'habits':
@@ -355,10 +360,7 @@ export function hasTargets(u: Unit, id) {
     case 'door':
     case 'objectStrike':
     case 'objectPush':
-    case 'hop':
       return ringCells(u).some(c => validCell(u, a, c.x, c.y));
-    case 'sweepAll':
-      return S.units.some(o => !o.down && o !== u && near1(u, o));
     default:
       return true;
   }
@@ -370,27 +372,33 @@ export async function perform(u: Unit, id, tgt?) {
   const a = A[id];
   if (!okAct(u, id)) return false;
   if (
-    ['attack', 'swap', 'bandage', 'cauterHeal', 'push', 'curse2', 'habits', 'ordnow', 'ordback', 'revive'].includes(
-      a.kind,
-    ) &&
+    [
+      'attack',
+      'swap',
+      'bandage',
+      'cauterHeal',
+      'push',
+      'curse2',
+      'habits',
+      'ordnow',
+      'ordback',
+      'revive',
+      'prisonGrab',
+    ].includes(a.kind) &&
     tgt &&
     !canTarget(u, a, tgt)
   )
     return false;
   if (a.kind === 'flash' && !(tgt && validFlash(u, tgt))) return false;
   if (a.kind === 'trap' && !(tgt && validTrap(u, tgt))) return false;
-  if (
-    (a.kind === 'objectStrike' || a.kind === 'objectPush' || a.kind === 'hop') &&
-    !(tgt && validCell(u, a, tgt.x, tgt.y))
-  )
-    return false;
+  if ((a.kind === 'objectStrike' || a.kind === 'objectPush') && !(tgt && validCell(u, a, tgt.x, tgt.y))) return false;
   /* полное укрытие держится до следующего своего действия; выходящего из укрытия встречает подготовленный выстрел */
   if (u.covered && id !== 'coverFull') {
     u.covered = false;
     await v2PrepCheck(u, { ranged: true });
     if (u.down || S.over) return true;
   }
-  if (a.kind === 'move') return performMove(u, tgt.x, tgt.y);
+  if (a.kind === 'move') return performMove(u, tgt.x, tgt.y, id);
   if (u.guilt && u.guilt.stage === 'band' && id === 'bandage' && tgt && tgt.id !== u.guilt.id) return false;
   if (u.mustAttack && disOf(u, 'aggr') === 2 && a.kind === 'attack' && !a.magic && u.side === S.phase) {
     const ts = targetsFor(u, id);
@@ -429,12 +437,12 @@ export async function perform(u: Unit, id, tgt?) {
     u.mustAttack = false;
     u._atk = true;
   }
-  if (u.side === S.phase && (ATTACK_KINDS.includes(a.kind) || ['pair', 'push', 'curse2'].includes(a.kind))) {
+  if (u.side === S.phase && (ATTACK_KINDS.includes(a.kind) || ['pair', 'push', 'curse2', 'prisonGrab', 'prisonCircle'].includes(a.kind))) {
     await v2PrepCheck(u);
     const lost =
       u.down ||
       S.over ||
-      (tgt && tgt.id && ['attack', 'push', 'curse2'].includes(a.kind) && (tgt.down || !canTarget(u, a, tgt)));
+      (tgt && tgt.id && ['attack', 'push', 'curse2', 'prisonGrab'].includes(a.kind) && (tgt.down || !canTarget(u, a, tgt)));
     if (lost) {
       if (!u.down && !S.over) ev(`<span class="dim">${esc(u.name)}: действие «${esc(a.name)}» сорвано</span>`);
       if (a.needLoad) u.loaded = false;
@@ -465,6 +473,15 @@ export async function perform(u: Unit, id, tgt?) {
     case 'charge':
       u.charge = { kind: a.chargeType, readyRound: S.round + 1 };
       ev(`⏳ ${uName(u)}: ${esc(a.name)} — подготовка до следующего хода, без перемещения`);
+      break;
+    case 'prisonGrab':
+      tryPrisonGrab(u,tgt);
+      break;
+    case 'prisonRelease':
+      releasePrisonGrip(u, 'отпущен добровольно');
+      break;
+    case 'prisonCircle':
+      await prisonChainCircle(u);
       break;
     case 'push':
       await doPush(u, tgt);
@@ -502,9 +519,8 @@ export async function perform(u: Unit, id, tgt?) {
       break;
     case 'attack': {
       if (a.needLoad) u.loaded = false;
-      if (a.needSpin) u.spun = 0;
       let reps = a.repeats || 1;
-      if (a.lasso && !a.lassoPart) await chooseSnarePart(u, a, tgt);
+      if (a.lasso) await chooseSnarePart(u, a, tgt);
       for (let i = 0; i < reps; i++) {
         if (tgt.down || u.down || S.over) break;
         await resolveAttack(u, a, tgt, {
@@ -576,28 +592,6 @@ export async function perform(u: Unit, id, tgt?) {
     case 'objectStrike':
       objectStrike(u, tgt);
       break;
-    case 'hop':
-      u._hopTurn = u.turnNo;
-      ev(`↩ ${uName(u)}: отскок — без удара из зоны контроля`);
-      await walk(u, [[tgt.x, tgt.y]], { noZoc: true });
-      break;
-    case 'sweepAll': {
-      /* круговой удар по всем шести соседям, и по своим тоже */
-      const ts = S.units.filter(o => !o.down && o !== u && near1(u, o));
-      ev(`🌀 ${uName(u)}: ${a.name} — по всем вокруг (${ts.length})`);
-      for (const t of ts) {
-        if (t.down || u.down || S.over) continue;
-        await resolveAttack(u, a, t, { noCover: true });
-      }
-      break;
-    }
-    case 'spin':
-      u.prep = { kind: 'strike', spin: true };
-      u.spun = S.round;
-      ev(
-        `🌀 ${uName(u)} раскручивает цепь: вошедшего рядом встретит удар; без перехвата — в следующий ход бросок на 2 гекса. От выстрелов не защищается`,
-      );
-      break;
     case 'objectPush':
       objectPush(u, tgt);
       break;
@@ -658,15 +652,16 @@ export async function perform(u: Unit, id, tgt?) {
   view.render();
   return true;
 }
-export async function performMove(u: Unit, x, y) {
-  if (!okAct(u, 'move')) return false;
-  const sp = speedOf(u),
+export async function performMove(u: Unit, x, y, id = 'move') {
+  if (!okAct(u, id)) return false;
+  const a = A[id],
+    sp = speedOf(u),
     dist = bfs(u, {
-      max: sp * Math.min(2, u.od),
+      max: a.stepback ? 1 : sp * Math.min(2, u.od),
     }),
     v = dist.get(key(x, y));
   if (!v || v.d === 0) return false;
-  const cost = v.d <= sp ? 1 : 2;
+  const cost = a.stepback ? 1 : v.d <= sp ? 1 : 2;
   if (cost > u.od) return false;
   interrupt(u, 'добровольное перемещение');
   if (u.covered) {
@@ -676,8 +671,10 @@ export async function performMove(u: Unit, x, y) {
   }
   u.od -= cost;
   u._acted = true;
-  log(`${esc(u.name)}: перемещение на ${v.d} кл. (${cost} ОД)`, 'mv');
-  await walk(u, pathTo(dist, x, y));
+  u._once = u._once || {};
+  if (a.once) u._once[id] = true;
+  log(`${esc(u.name)}: ${a.stepback ? 'Отскок' : 'перемещение'} на ${v.d} кл. (${cost} ОД)`, 'mv');
+  await walk(u, pathTo(dist, x, y), { noZoc: !!a.stepback });
   if (u.guilt && u.guilt.stage === 'go') u.guilt.stage = guiltNext(u);
   view.render();
   return true;
@@ -689,6 +686,7 @@ export async function walk(u: Unit, path, opt: Opts = {}) {
     if (SET.zoc && !opt.noZoc && !(await zocStep(u, x, y, hit))) break;
     if (u.down || (u.prone && path.length > 1 && (u.x !== x || u.y !== y) && hd(u.x, u.y, x, y) !== 1)) break;
     const pr0 = u.prone;
+    const from = {x:u.x,y:u.y};
     u.x = x;
     u.y = y;
     terrainStep(u, x, y);
@@ -696,6 +694,8 @@ export async function walk(u: Unit, path, opt: Opts = {}) {
     await sleep(150);
     if (u.down || S.over || (u.prone && !pr0)) break;
     if (trapCheck(u)) break;
+    await prisonChainIntercept(u, from);
+    if (u.down || S.over) break;
     const wasProne = u.prone;
     await v2PrepCheck(u);
     if (u.down || S.over || (u.prone && !wasProne) || u.x !== x || u.y !== y) break;
@@ -828,6 +828,10 @@ export function contestLog(title, ma, ra, mb, rb, okTxt, failTxt, ok, diff) {
   );
 }
 export async function doEscape(u: Unit) {
+  if (u.grabbedBy != null) {
+    escapePrisonGrip(u);
+    return;
+  }
   if (!hasEff(u, 'snare') && hasEff(u, 'lasso')) {
     doEscapeLasso(u);
     return;

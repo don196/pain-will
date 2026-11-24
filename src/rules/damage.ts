@@ -2,6 +2,7 @@ import type { Unit } from '../types';
 import { DISP, DIS_ICON } from '../data/disorders';
 import { disOf, guiltWatch, willEvent, witnessDown } from './disorders';
 import { releaseLasso } from './lasso';
+import { clearPrisonGripOnDown } from './prisoners';
 import { ev, log, uName } from './log';
 import { enterEdge } from './pain';
 import { openWounds } from './wounds';
@@ -30,6 +31,7 @@ export function applyDamage(u: Unit, dmg, src) {
   return;
 }
 export function downUnit(u: Unit, src?) {
+  clearPrisonGripOnDown(u);
   u.down = true;
   u.od = 0;
   u.prep = null;

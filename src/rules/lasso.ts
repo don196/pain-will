@@ -9,20 +9,14 @@ import { cheb, pct, sum } from '../util';
 import { view } from '../view';
 
 export const LASSO_R = 3;
-/* Длина привязи: силок — 3 гекса, захват рукой (тюремщик) — вплотную. */
-export function leashR(h) {
-  const t = h && h.lassoT ? byId(h.lassoT) : null,
-    e = t && getEff(t, 'lasso');
-  return e && e.grip ? 1 : LASSO_R;
-}
 
 export function lassoSnap(t) {
   if (t.down) return;
   const e = getEff(t, 'lasso'),
     h = e && byId(e.by);
-  if (h && cheb(h, t) > leashR(h)) {
-    releaseLasso(h, e.grip ? 'цель вырвали из захвата' : 'цель отбросили дальше длины силка');
-    if (!e.grip) addSt(t, 'unst', 1, 'сорванный силок');
+  if (h && cheb(h, t) > LASSO_R) {
+    releaseLasso(h, 'цель отбросили дальше длины силка');
+    addSt(t, 'unst', 1, 'сорванный силок');
   }
 }
 
@@ -31,7 +25,7 @@ export const lassoPart = (u: Unit) => {
   return e ? e.part : null;
 };
 
-export const immobile = (u: Unit) => hasEff(u, 'snare') || hasEff(u, 'lasso') || false;
+export const immobile = (u: Unit) => hasEff(u, 'snare') || hasEff(u, 'lasso') || u.grabbedBy != null;
 
 export function lassoTarget(u: Unit) {
   if (!u.lassoT) return null;

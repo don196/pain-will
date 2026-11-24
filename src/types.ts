@@ -124,6 +124,7 @@ export interface Scenario {
   heightLayers?: { level: number; rect?: number[]; cells?: number[][] }[];
   terrainLayers?: { type: string; rect?: number[]; cells?: number[][]; depth?: number; dir?: number[] }[];
   pool?: string[];
+  heroOrder?: string[];
 }
 
 export interface LogEntry {

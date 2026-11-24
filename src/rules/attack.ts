@@ -100,7 +100,8 @@ export async function resolveAttack(att: Unit, act: Action, target: Unit, opt: O
     defTxt = act.lasso ? `8 + Ловкость цели = <b>${pas}</b>` : `Стойкости <b>${pas}</b>`,
     adUsed = false;
   let v2def = null;
-  if (!(act.lasso && total < pas) && !noAD && !opt.area && canActiveDefend(def)) {
+  if (!(act.lasso && total < pas) && !noAD && !opt.area &&
+      !(def.charge?.kind === 'prisonChain' && (act.ranged || act.magic)) && canActiveDefend(def)) {
     v2def = await v2Defend(def, att, act, total, pas, opt);
     if (v2def) {
       spendReact(def, v2def.mode);
@@ -318,7 +319,7 @@ export function knockPlan(att: Unit, def: Unit) {
       held: true,
       big: true,
     };
-  if (hasEff(def, 'snare'))
+  if (hasEff(def, 'snare') || def.grabbedBy != null)
     return {
       held: true,
     };

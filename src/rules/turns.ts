@@ -170,7 +170,6 @@ export async function endPhase() {
       applyDamage(u, 1, ls ? byId(ls.by) : null);
       if (S.over) return;
     }
-    if (u.spun && u.spun < S.round) u.spun = 0;
     if (!u.down) terrainEndTurn(u);
     /* кровотечение (свод 2.4): +1 Боль в конце своего хода, если тяжесть открытых ран 2+ */
     if (!u.down && u.bleed > 0) {

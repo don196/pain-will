@@ -1,6 +1,6 @@
 import { SET } from '../settings';
 import type { Opts, Unit } from '../types';
-import { lassoTarget, leashR } from './lasso';
+import { LASSO_R, lassoTarget } from './lasso';
 import { hiddenFrom } from './light';
 import { hAt, hNearOk, hasHeights, heightClear, stepCost } from './height';
 import { coverAt, hasTerrain, isTerrOpaque, isTerrSolid, slowAt } from './terrain';
@@ -110,7 +110,7 @@ export function bfs(u: Unit, opt: Opts = {}) {
         ny = y + dy,
         k = key(nx, ny);
       if (dist.has(k) || !footFree(u, nx, ny)) continue;
-      if (leash && hd(nx, ny, leash.x, leash.y) > leashR(u)) continue;
+      if (leash && hd(nx, ny, leash.x, leash.y) > LASSO_R) continue;
       dist.set(k, {
         d: cur.d + 1,
         p: key(x, y),
@@ -146,7 +146,7 @@ function bfsH(u: Unit, opt: Opts = {}) {
         ny = y + dy,
         k = key(nx, ny);
       if (done.has(k) || !footFree(u, nx, ny)) continue;
-      if (leash && hd(nx, ny, leash.x, leash.y) > leashR(u)) continue;
+      if (leash && hd(nx, ny, leash.x, leash.y) > LASSO_R) continue;
       const c = stepCost(x, y, nx, ny, climb) + slowAt(nx, ny, climb);
       if (!isFinite(c)) continue;
       const nd = cur.d + c;

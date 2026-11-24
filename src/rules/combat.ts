@@ -9,7 +9,7 @@ import { knockPlan, resolveAttack } from './attack';
 import { applyDamage, downUnit } from './damage';
 import { fallPain, hAt, hasHeights, isStairs } from './height';
 import { inB, isFloor, near1, unitAt } from './geometry';
-import { SNARE_PART, immobile, lassoPart, lassoSnap, lassoTarget, leashR, releaseLasso } from './lasso';
+import { LASSO_R, SNARE_PART, immobile, lassoPart, lassoSnap, lassoTarget, releaseLasso } from './lasso';
 import { hiddenFrom } from './light';
 import { ev, sleep, uName } from './log';
 import { takeVuln, weakMag } from './magic';
@@ -391,13 +391,15 @@ export function v2DefOptions(def: Unit, att: Unit, act: Action, opt) {
     act.kind === 'attack' &&
     !act.ranged &&
     !act.magic &&
-    !act.noParry &&
     act.fixed == null &&
     actId(act) !== 'improv' &&
     !opt.prepared &&
+    !act.noParry &&
+    !tplFlag(def,'noParry') &&
     meleeInHand(def) &&
     partSt(def, 'armR') < 3 &&
-    lassoPart(def) !== 'armR'
+    lassoPart(def) !== 'armR' &&
+    def.grabbedArm !== 'armR'
   ) {
     const m = [
       {
@@ -439,8 +441,6 @@ export const V2_EFF = new Set(['blind2', 'mute', 'weak2', 'vuln2', 'fmark', 'mag
 
 /* Активная защита 2.0: один из трёх способов против уже выпавшего броска атаки. Неудача ничего не ухудшает. */
 export async function v2Defend(def: Unit, att: Unit, act: Action, total, pas, opt) {
-  /* цепник во время раскрутки не защищается от выстрелов и снарядов */
-  if (def.prep && def.prep.spin && (act.ranged || act.magic)) return null;
   let ops = v2DefOptions(def, att, act, opt);
   if ((def.od || 0) <= 0) ops = ops.filter(o => o.mode === 'dodge' && dexFree(def));
   if (!ops.length) return null;
@@ -574,7 +574,7 @@ export async function v2OnHit(att: Unit, act: Action, def: Unit, deg, dmg, x, hb
   }
   const basic = act.kind === 'attack' && !act.complex && !act.magic && act.fixed == null;
   if (act.lasso) {
-    const sp = act.lassoPart || att._snarePart || 'leg',
+    const sp = att._snarePart || 'leg',
       ar = sp ? (sp === 'leg' ? pick(['legL', 'legR']) : sp) : pick(AREAS);
     if (ar === 'torso') ev(`➰ Силок соскальзывает с корпуса ${uName(def)} — захвата нет`);
     else {
@@ -582,15 +582,12 @@ export async function v2OnHit(att: Unit, act: Action, def: Unit, deg, dmg, x, hb
         type: 'lasso',
         by: att.id,
         part: ar,
-        grip: !!act.grip,
         end: 1e9,
       });
       att.lassoT = def.id;
-      interrupt(def, act.grip ? 'захват' : 'силок');
+      interrupt(def, 'силок');
       ev(
-        act.grip
-          ? `✊ Захват руки: ${uName(att)} держит ${uName(def)} — оружием в этой руке не ударить, обездвижен, −3 к уклонению. Освободиться: Сила против ${10 + stat(att, 'str')}`
-          : `➰ Силок: ${uName(att)} ловит ${uName(def)} — ${AREA_RU[ar]}. Обездвиживание${ar === 'head' ? ' и Кашель' : ar === 'armR' ? ', оружием в этой руке не ударить' : ar === 'armL' ? ', щитом не закрыться' : ''}. Освободиться: Сила против ${10 + stat(att, 'str')}`,
+        `➰ Силок: ${uName(att)} ловит ${uName(def)} — ${AREA_RU[ar]}. Обездвиживание${ar === 'head' ? ' и Кашель' : ar === 'armR' ? ', оружием в этой руке не ударить' : ar === 'armL' ? ', щитом не закрыться' : ''}. Освободиться: Сила против ${10 + stat(att, 'str')}`,
       );
       if (ar === 'head') addSt(def, 'cough', 1, 'силок на горле');
     }
@@ -773,7 +770,7 @@ export async function shove(u: Unit, t, n) {
   if (moved) {
     interrupt(t, 'толчок');
     const lt = t.lassoT && lassoTarget(t);
-    if (lt && cheb(t, lt) > leashR(t)) releaseLasso(t, 'оттолкнули — захват сорвался');
+    if (lt && cheb(t, lt) > LASSO_R) releaseLasso(t, 'оттолкнули дальше длины силка');
   }
   addSt(t, 'unst', 1, 'принудительное перемещение');
   if (moved) lassoSnap(t);
@@ -829,7 +826,6 @@ export async function v2PrepCheck(mover, opt: Opts = {}) {
     } else {
       const id = prepWeapon(p, mover);
       if (!id) continue;
-      if (p.prep.spin) p.spun = 0;
       p.prep = null;
       p.od--;
       const a = A[id];

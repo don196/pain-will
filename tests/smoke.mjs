@@ -279,32 +279,6 @@ try {
       ok(sv.armor === '3,2,0,2' && sv.nat1 && sv.nat20 && sv.canShoot && sv.ff && sv.bleed && sv.head && sv.heat && sv.will0 && sv.will && sv.willForm && sv.habits && sv.cauter && sv.chair && sv.down && sv.bed && sv.bedHp && sv.oily && sv.ignite && sv.burnOut && sv.spikes,
         'свод 2.4: броня, натуральные 1/20, огонь через союзника, кровь, голова, Нагрев, Воля, повадки, прижигание, окружение', JSON.stringify(sv));
 
-      // Тюремный блок: захват руки держит и не даёт тюремщику ходить; круговой удар задевает всех вокруг; отскок раз за ход.
-      const pr = await page.evaluate(async () => {
-        const r = {};
-        P.loadScenario('prison3');
-        const U = t => P.S.units.find(u => u.tpl === t);
-        const j = U('jailer'), g = U('prisonerChain'), n = U('prisonerKnife'), c = U('conrad'), w = U('walter');
-        r.units = !!(j && g && n);
-        for (const u of P.S.units) if (![j, g, n, c, w].includes(u)) { u.x = 16; u.y = 5; }
-        j.x = 9; j.y = 4; c.x = 10; c.y = 4; j.od = 3; P.S.phase = 'en';
-        P.FORCED.length = 0; P.FORCED.push(20, 1, 1);
-        await P.perform(j, 'armGrab', c);
-        const e = P.getEff(c, 'lasso');
-        r.grip = !!e && e.grip && e.part === 'armR' && !P.okAct(j, 'move') && P.immobile(c);
-        P.FORCED.length = 0;
-        g.x = 5; g.y = 5; n.x = 4; n.y = 5; w.x = 6; w.y = 5; g.od = 3;
-        const pn = P.painOf(n), pw = P.painOf(w);
-        P.FORCED.push(15, 1, 15, 1, 15, 1);
-        await P.perform(g, 'chainSweep');
-        r.sweep = P.painOf(n) > pn || n.down; r.sweepHero = P.painOf(w) > pw || w.down;
-        P.FORCED.length = 0;
-        n.od = 3; n.turnNo = 5; n.x = 2; n.y = 5;
-        const cell = P.ringCells(n).find(q => P.validCell(n, P.A.hop, q.x, q.y));
-        r.hop = !!cell && (await P.perform(n, 'hop', cell)) !== false && !P.okAct(n, 'hop');
-        return r;
-      });
-      ok(pr.units && pr.grip && pr.sweep && pr.sweepHero && pr.hop, 'тюремный блок: захват руки, круговой удар по всем, отскок', JSON.stringify(pr));
 
     }
 

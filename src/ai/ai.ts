@@ -15,7 +15,7 @@ import {
   validCell,
   validThrow,
 } from '../rules/actions';
-import { meleeInHand, stOf } from '../rules/combat';
+import { stOf } from '../rules/combat';
 import { disOf, guiltCell, obsessLock } from '../rules/disorders';
 import {
   bfs,
@@ -29,10 +29,9 @@ import {
   pairOptions,
   pathTo,
   posOf,
-  ringCells,
   unitAt,
 } from '../rules/geometry';
-import { lassoPart, lassoTarget } from '../rules/lasso';
+import { lassoPart } from '../rules/lasso';
 import { hiddenFrom, unitLight } from '../rules/light';
 import { log, sleep } from '../rules/log';
 import { limOf, onEdge, painOf } from '../rules/pain';
@@ -82,6 +81,7 @@ export async function aiStep(u: Unit) {
   }
   if (await aiRescueMove(u, foes)) return true;
   if (u.prone && okAct(u, 'standup')) return await perform(u, 'standup');
+  if (u.grabbedBy != null && okAct(u, 'escape')) return await perform(u, 'escape');
   if (
     hasEff(u, 'lasso') &&
     !hasEff(u, 'snare') &&
@@ -777,84 +777,83 @@ Object.assign(AI, {
   },
 });
 
-/* ---------- Тюремный блок (свод 2.3–2.4, §8.6) ---------- */
-/* Цель для фланкера: сбитые, открытые (без активной защиты), без прикрытия рядом, раненые. */
-function flankScore(t: Unit) {
-  const guarded = friends(t).some(o => !o.down && cheb(o, t) === 1 && (tplOf(o).guardian || o.shield > 0));
-  return (t.prone ? 4 : 0) + (openT(t) ? 3 : 0) + (guarded ? 0 : 2) + (1 - t.hp / t.maxHp) * 1.5;
-}
+/* Тюремный блок 4.5.6: тактические роли из карточек на Боли (22.11).
+   Бегство по 30% HP и фиксированные стадии расстройств здесь намеренно НЕ включены. */
 Object.assign(AI, {
-  /* Узник с ножом: быстрый фланкер — бьёт сбитых, открытых и неприкрытых; после удара, если рядом двое, — отскок. */
-  async pKnife(u: Unit, foes) {
-    const adj = foes.filter(f => near1(u, f));
-    if (adj.length >= 2 && u._ai.hit && okAct(u, 'hop')) {
-      const cells = ringCells(u).filter(c => validCell(u, A.hop, c.x, c.y));
-      const best = cells
-        .map(c => ({ c, n: foes.filter(f => cheb(c, f) === 1).length, d: Math.min(...foes.map(f => cheb(c, f))) }))
-        .sort((a, b) => a.n - b.n || b.d - a.d)[0];
-      if (best && best.n < adj.length) return await perform(u, 'hop', best.c);
+  async pPrisonKnife(u: Unit, foes: Unit[]) {
+    if (u._ai.prisonStruck && okAct(u,'prisonBackstep')) {
+      const dist = bfs(u,{max:1});
+      let best = null;
+      for (const [k,v] of dist) {
+        if (v.d !== 1) continue;
+        const [x,y] = unkey(k);
+        const here = Math.min(...foes.map(f=>cheb(u,f)));
+        const away = Math.min(...foes.map(f=>cheb({x,y},f)));
+        if (away > here && (!best || away > best.away)) best = {x,y,away};
+      }
+      if (best) return await performMove(u,best.x,best.y,'prisonBackstep');
     }
-    if (adj.length && okAct(u, 'knife')) {
-      const ts = adj.filter(t => canTarget(u, A.knife, t)).sort((a, b) => flankScore(b) - flankScore(a));
+    if (okAct(u,'prisonKnifeAttack')) {
+      const ts = targetsFor(u,'prisonKnifeAttack');
       if (ts.length) {
-        u._ai.hit = true;
-        return await perform(u, 'knife', ts[0]);
+        const t = ts.slice().sort((a,b)=>
+          (Object.keys(b.wounds||{}).length ? 2 : 0) + (b.prone ? 1 : 0) + (b.maxHp-b.hp)/b.maxHp -
+          ((Object.keys(a.wounds||{}).length ? 2 : 0) + (a.prone ? 1 : 0) + (a.maxHp-a.hp)/a.maxHp))[0];
+        u._ai.prisonStruck = true;
+        return await perform(u,'prisonKnifeAttack',t);
       }
     }
-    if (!adj.length && okAct(u, 'move') && !u._ai.mv) {
-      u._ai.mv = true;
-      const t = foes.slice().sort((a, b) => flankScore(b) - flankScore(a) || cheb(u, a) - cheb(u, b))[0];
-      if (t) return await aiApproach(u, 'knife', t);
+    if (okAct(u,'move') && !u._ai.prisonMoved) {
+      u._ai.prisonMoved = true;
+      const t=nearestFoe(u,foes,'prisonKnifeAttack');
+      if (t) return await aiApproach(u,'prisonKnifeAttack',t);
     }
     return false;
   },
-  /* Узник с цепью: рядом двое и больше — круговой удар (своих не бережёт); рядом один — цепь; после раскрутки — бросок
-     на 2 гекса; герои подходят — раскрутка. */
-  async pChain(u: Unit, foes) {
-    const adj = foes.filter(f => near1(u, f));
-    if (adj.length >= 2 && okAct(u, 'chainSweep')) return await perform(u, 'chainSweep');
-    if (okAct(u, 'chainThrow')) {
-      const ts = targetsFor(u, 'chainThrow');
-      if (ts.length) return await perform(u, 'chainThrow', enemyPick(u, ts));
-    }
-    if (adj.length && okAct(u, 'chain')) {
-      const ts = adj.filter(t => canTarget(u, A.chain, t));
-      if (ts.length) return await perform(u, 'chain', enemyPick(u, ts));
-    }
-    const near = foes.filter(f => cheb(u, f) <= 3);
-    if (!adj.length && near.length && !u.prep && okAct(u, 'chainSpin') && u.od >= 1 && u._ai.mv)
-      return await perform(u, 'chainSpin');
-    if (!adj.length && okAct(u, 'move') && !u._ai.mv) {
-      u._ai.mv = true;
-      const t = nearestFoe(u, foes, 'chain');
-      if (t) {
-        /* подходит на расстояние раскрутки, а не вплотную */
-        if (cheb(u, t) <= 3 && okAct(u, 'chainSpin')) return await perform(u, 'chainSpin');
-        return await aiApproach(u, 'chain', t);
+  async pPrisonChain(u: Unit, foes: Unit[]) {
+    if (u.charge?.kind === 'prisonChain') {
+      if (u.charge.readyRound === S.round && okAct(u,'prisonChainThrow')) {
+        const ts=targetsFor(u,'prisonChainThrow');
+        if (ts.length) return await perform(u,'prisonChainThrow',enemyPick(u,ts));
       }
+      if (u.charge.readyRound > S.round) return false;
     }
-    if (!adj.length && !u.prep && okAct(u, 'chainSpin') && near.length) return await perform(u, 'chainSpin');
+    const adj=foes.filter(t=>near1(u,t));
+    if (adj.length >= 2 && okAct(u,'prisonChainCircle')) return await perform(u,'prisonChainCircle');
+    if (adj.length && okAct(u,'prisonChainAttack')) {
+      const ts=targetsFor(u,'prisonChainAttack');
+      if (ts.length) return await perform(u,'prisonChainAttack',enemyPick(u,ts));
+    }
+    if (!adj.length && !u.charge && okAct(u,'prisonChainReady') && foes.some(t=>cheb(u,t)===2))
+      return await perform(u,'prisonChainReady');
+    if (okAct(u,'move') && !u._ai.prisonMoved) {
+      u._ai.prisonMoved = true;
+      const t=nearestFoe(u,foes,'prisonChainAttack');
+      if (t) return await aiApproach(u,'prisonChainAttack',t);
+    }
     return false;
   },
-  /* Тюремщик: держит одну вооружённую руку и бьёт дубинкой; пока держит — не двигается. */
-  async pJailer(u: Unit, foes) {
-    const held = lassoTarget(u),
-      adj = foes.filter(f => near1(u, f));
-    if (!held && adj.length && okAct(u, 'armGrab')) {
-      const t = adj
-        .filter(f => canTarget(u, A.armGrab, f) && meleeInHand(f) && !hasEff(f, 'lasso'))
-        .sort((a, b) => b.base.str - a.base.str)[0];
-      if (t) return await perform(u, 'armGrab', t);
+  async pPrisonJailer(u: Unit, foes: Unit[]) {
+    if (u.hold?.kind === 'prisonJailer') {
+      if (okAct(u,'prisonJailerClub')) {
+        const t=byId(u.hold.t);
+        if (t && !t.down && canTarget(u,A.prisonJailerClub,t))
+          return await perform(u,'prisonJailerClub',t);
+      }
+      return false;
     }
-    if (adj.length && okAct(u, 'jailClub')) {
-      const ts = adj.filter(t => canTarget(u, A.jailClub, t));
-      const t = held && ts.includes(held) ? held : enemyPick(u, ts);
-      if (t) return await perform(u, 'jailClub', t);
+    if (okAct(u,'prisonJailerGrab')) {
+      const ts=targetsFor(u,'prisonJailerGrab').filter(t=>t.grabbedBy==null);
+      if (ts.length) return await perform(u,'prisonJailerGrab',enemyPick(u,ts));
     }
-    if (!held && !adj.length && okAct(u, 'move') && !u._ai.mv) {
-      u._ai.mv = true;
-      const t = nearestFoe(u, foes, 'jailClub');
-      if (t) return await aiApproach(u, 'jailClub', t);
+    if (okAct(u,'prisonJailerClub')) {
+      const ts=targetsFor(u,'prisonJailerClub');
+      if (ts.length) return await perform(u,'prisonJailerClub',enemyPick(u,ts));
+    }
+    if (okAct(u,'move') && !u._ai.prisonMoved) {
+      u._ai.prisonMoved=true;
+      const t=nearestFoe(u,foes,'prisonJailerClub');
+      if (t) return await aiApproach(u,'prisonJailerClub',t);
     }
     return false;
   },

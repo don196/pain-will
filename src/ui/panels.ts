@@ -112,9 +112,11 @@ export function actState(u: Unit, id) {
     why = 'рядом нет союзника без сознания (и клетка под ним должна быть свободна)';
   else if (a.speech && hasEff(u, 'mute')) why = 'Немота: нужна речь';
   else if (a.kind === 'move' && hasEff(u, 'lasso')) why = 'в силке';
+  else if (a.kind === 'move' && u.grabbedBy != null) why = 'тюремщик удерживает руку';
+  else if (a.kind === 'move' && u.hold) why = 'удерживает пленника';
   else if (a.kind === 'prep' && u.prep) why = 'уже готовится';
   else if (a.lasso && lassoTarget(u)) why = 'силок занят';
-  else if (ATTACK_KINDS.includes(a.kind) && !a.magic && !a.lasso && (partSt(u, 'armR') >= 3 || lassoPart(u) === 'armR'))
+  else if (ATTACK_KINDS.includes(a.kind) && !a.magic && !a.lasso && (partSt(u, 'armR') >= 3 || lassoPart(u) === 'armR' || u.grabbedArm === 'armR'))
     why = 'рука с оружием не действует';
   else if (disLock(u, id)) why = disLock(u, id);
   else if (!hasTargets(u, id)) why = 'нет доступной цели';
@@ -206,7 +208,7 @@ export function actMeta(u: Unit, id, a) {
       left
     );
   if (a.kind === 'attack' && a.fixed != null) return a.fixed ? 'урон ' + a.fixed + '' : 'без урона';
-  if (a.kind === 'move') return speedOf(u) + ' гекс. за ОД';
+  if (a.kind === 'move') return a.stepback ? '1 гекс · без реакций зоны · раз за ход' : speedOf(u) + ' гекс. за ОД';
   if (a.kind === 'push') return 'Сила ' + stat(u, 'str') + (u.shield > 0 ? ' + щит 2' : '');
   if (a.kind === 'prep') return 'до своего хода';
   if (a.kind === 'standup') return 'снимает «сбит»';
