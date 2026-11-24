@@ -12,7 +12,7 @@ const ok = (cond, what, extra = '') => { console.log(`${cond ? '✓' : '✗'} ${
 
 const browser = await chromium.launch();
 try {
-  for (const vp of [{ width: 1440, height: 900, name: 'компьютер' }, { width: 390, height: 844, name: 'телефон' }]) {
+  for (const vp of [{ width: 1440, height: 900, name: 'компьютер' }, { width: 390, height: 844, name: 'телефон' }, { width: 844, height: 390, name: 'телефон горизонтально' }]) {
     const page = await browser.newPage({ viewport: vp });
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
@@ -296,21 +296,51 @@ try {
       ok(dk.min && dk.rows === 1 && dk.wrap > dk.dock * 3 && dk.full, 'компьютер: действия одной строкой, поле выше, разворот по кнопке', JSON.stringify(dk));
     }
     if (vp.name === 'телефон') {
-      const ph = await page.evaluate(() => ({ dock: getComputedStyle(document.querySelector('#dock')).position, tr: document.querySelector('#board').style.transform }));
-      ok(ph.dock === 'fixed' && /scale/.test(ph.tr), 'телефон: действия в нижней панели, поле масштабируется', JSON.stringify(ph));
-      // Поворот поля в портрете, сворачиваемая панель, карточка листом.
+      // Макет 24.11: страница не прокручивается, поле — всё место между лентой и панелью, карта при старте целиком,
+      // кнопки поля в панели, слои — по кнопке «Слои».
+      const ph = await page.evaluate(() => {
+        const R = s => document.querySelector(s).getBoundingClientRect();
+        const w = R('#wrap'), b = R('#board'), d = R('#dock');
+        return {
+          dock: getComputedStyle(document.querySelector('#dock')).position, tr: document.querySelector('#board').style.transform,
+          scroll: document.documentElement.scrollHeight - innerHeight, field: Math.round(w.height), dockTop: Math.round(d.top), wrapBot: Math.round(w.bottom),
+          fits: b.top >= w.top - 1 && b.bottom <= w.bottom + 1 && b.left >= w.left - 1 && b.right <= w.right + 1,
+          ctl: !!document.querySelector('#dock #bctl'), chips: getComputedStyle(document.querySelector('#bov')).display,
+        };
+      });
+      ok(ph.dock === 'relative' && /scale/.test(ph.tr) && ph.scroll <= 0 && ph.field > 480 && Math.abs(ph.dockTop - ph.wrapBot) <= 2 && ph.fits && ph.ctl && ph.chips === 'none',
+        'телефон: один экран без прокрутки, поле больше 480 px, карта целиком, кнопки поля в панели', JSON.stringify(ph));
+      // Поворот поля в портрете, панель свёрнута по умолчанию, «Ещё» разворачивает, слои, карточка листом.
       const pr = await page.evaluate(async () => {
         const r = {};
+        const vis = () => [...document.querySelectorAll('#acts .act')].filter(b => getComputedStyle(b).display !== 'none').length;
         r.rot = P.ROT; r.tall = P.boardH() > P.boardW();
+        r.min0 = document.body.classList.contains('dock-min'); r.top = vis();
+        document.querySelector('#btnAllActs').click(); r.max = !document.body.classList.contains('dock-min'); r.all = vis();
         document.querySelector('#dockTog').click(); r.min = document.body.classList.contains('dock-min');
-        r.top = [...document.querySelectorAll('#acts .act')].filter(b => getComputedStyle(b).display !== 'none').length;
-        document.querySelector('#dockTog').click(); r.max = !document.body.classList.contains('dock-min');
+        document.querySelector('#btnLayers').click(); r.layers = getComputedStyle(document.querySelector('#bov')).display === 'flex';
+        document.querySelector('#btnLayers').click(); r.layersOff = getComputedStyle(document.querySelector('#bov')).display === 'none';
         document.querySelector('#btnCardSheet').click(); r.sheet = getComputedStyle(document.querySelector('.side')).position;
         document.querySelector('#sheetClose').click(); r.closed = !document.body.classList.contains('sheet-open');
         document.querySelector('#btnRot').click(); r.off = !P.ROT; document.querySelector('#btnRot').click(); r.on = P.ROT;
         return r;
       }).catch(e => ({ err: e.message }));
-      ok(pr.rot && pr.tall && pr.min && pr.top <= 3 && pr.max && pr.sheet === 'fixed' && pr.closed && pr.off && pr.on, 'телефон: поворот поля, свёрнутая панель, карточка листом', JSON.stringify(pr));
+      ok(pr.rot && pr.tall && pr.min0 && pr.top === 3 && pr.max && pr.all > 3 && pr.min && pr.layers && pr.layersOff && pr.sheet === 'fixed' && pr.closed && pr.off && pr.on,
+        'телефон: поворот поля, свёрнутая панель и «Ещё», слои, карточка листом', JSON.stringify(pr));
+    }
+    if (vp.name === 'телефон горизонтально') {
+      // Поле слева на всю высоту, справа колонка с бойцами, действиями списком и концом хода; прокрутки нет.
+      const lh = await page.evaluate(() => {
+        const R = s => document.querySelector(s).getBoundingClientRect();
+        const w = R('#wrap'), d = R('#dock'), e = R('#endwrap'), b = R('#board');
+        return {
+          rot: P.ROT, scroll: document.documentElement.scrollHeight - innerHeight, fieldH: Math.round(w.height), side: d.left >= w.right - 1 && e.left >= w.right - 1,
+          endVis: e.bottom <= innerHeight + 1, min: document.body.classList.contains('dock-min'), grid: getComputedStyle(document.querySelector('.agroups')).display,
+          fits: b.left >= w.left - 1 && b.right <= w.right + 1, ctl: !!document.querySelector('#dock #bctl'),
+        };
+      });
+      ok(!lh.rot && lh.scroll <= 0 && lh.fieldH >= 380 && lh.side && lh.endVis && !lh.min && lh.grid === 'grid' && lh.fits && lh.ctl,
+        'телефон горизонтально: поле слева на всю высоту, действия колонкой справа', JSON.stringify(lh));
     }
     // Ход противников под ИИ, герои отвечают первым вариантом.
     await page.evaluate(() => { P.SET.anim = 'fast'; });

@@ -31,6 +31,7 @@ import { limOf, onEdge, painOf } from '../rules/pain';
 import { sfx, syncDrone } from './sound';
 import { drawAllStairsFlat, drawHeightEdges, drawTerrainFlat, drawTerrainObj, floorTone } from './terrain-draw';
 import { $, REDUCED, cheb, el, esc, hash, hd, key, pct, sz, unkey } from '../util';
+import { phoneH } from './mode';
 export let CELL = 46;
 export function appendLog(e) {
   const box = $('#log');
@@ -183,7 +184,8 @@ export function flash(u: Unit) {
 }
 export function computeCell() {
   const wrap = $('#wrap');
-  const wide = window.innerWidth > 700 && wrap.clientHeight > 120;
+  /* поле вписывается и по ширине, и по высоте — при старте видно целиком (телефон тоже, макет 24.11) */
+  const wide = wrap.clientHeight > 120;
   const aw = wrap.clientWidth - 22,
     ah = wide ? wrap.clientHeight - 22 : 99999;
   const pw = S.w + 0.5,
@@ -205,7 +207,7 @@ function fitWrapHeight() {
   const wrap = $('#wrap');
   if (!wrap) return;
   const iw = window.innerWidth;
-  if (iw <= 700 || iw > 1180) {
+  if (iw <= 700 || iw > 1180 || phoneH()) {
     wrap.style.height = '';
     return;
   }

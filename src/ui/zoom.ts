@@ -12,7 +12,7 @@ export const isPhone = () => typeof window !== 'undefined' && window.matchMedia(
 /* Было ли последнее нажатие сдвигом поля (тогда это не нажатие на клетку). */
 /* Долгое нажатие на фишку (палец) — открыть карточку бойца. */
 let lpT = null;
-export const LP = { cb: null as null | ((id) => void) };
+export const LP = { cb: null as null | ((id) => void), cell: null as null | ((x: number, y: number, cx: number, cy: number) => void) };
 function unitIdAt(t: HTMLElement) {
   const tok = t.closest('#toks [data-id]') as HTMLElement;
   if (tok) return +tok.dataset.id;
@@ -47,8 +47,9 @@ function clamp() {
   Z.y = H <= vh ? (vh - H) / 2 : Math.min(m, Math.max(vh - H - m, Z.y));
 }
 
-/* fit — поле целиком; иначе на телефоне крупнее, с выбранным бойцом в центре. keep — сохранить текущий вид. */
-export function zoomReset(fit = false, keep = false) {
+/* fit — поле целиком; на телефоне тоже целиком, если так фигурки не мельче 3/4 (макет 24.11);
+   closer — крупнее, с выбранным бойцом в центре. keep — сохранить текущий вид. */
+export function zoomReset(fit = false, keep = false, closer = false) {
   if (!S) return;
   const w = $('#wrap');
   if (!w) return;
@@ -60,7 +61,7 @@ export function zoomReset(fit = false, keep = false) {
   const vw = w.clientWidth,
     vh = w.clientHeight,
     fitK = Math.min(vw / boardW(), vh / boardH(), isPhone() ? 9 : 1);
-  if (fit || !isPhone()) {
+  if (fit || !isPhone() || (!closer && fitK >= 0.75)) {
     Z.fit = true;
     Z.k = fitK;
     Z.x = (vw - boardW() * Z.k) / 2;
@@ -112,12 +113,23 @@ export function initZoom() {
     clearTimeout(lpT);
     if (e.pointerType !== 'mouse' && pts.size === 1 && LP.cb) {
       const id = unitIdAt(e.target as HTMLElement);
+      const cell = (e.target as HTMLElement).closest('#hl [data-x]') as HTMLElement;
+      const cx = e.clientX,
+        cy = e.clientY;
       if (id != null)
         lpT = setTimeout(() => {
           if (dragged || pts.size !== 1) return;
           dragged = true; /* следующий щелчок не засчитывается */
           if (navigator.vibrate) navigator.vibrate(12);
           LP.cb(id);
+        }, 520);
+      else if (cell && LP.cell)
+        /* долгое нажатие на пустую клетку — карточка клетки (высота, лестница, предмет) */
+        lpT = setTimeout(() => {
+          if (dragged || pts.size !== 1) return;
+          dragged = true;
+          if (navigator.vibrate) navigator.vibrate(12);
+          LP.cell(+cell.dataset.x, +cell.dataset.y, cx, cy);
         }, 520);
     }
   });
@@ -187,5 +199,6 @@ export function initZoom() {
     { passive: false },
   );
   const fitBtn = $('#btnFit');
-  if (fitBtn) fitBtn.onclick = () => zoomReset(!Z.fit || !isPhone() ? true : false);
+  /* на телефоне кнопка чередует: всё поле — крупнее у выбранного бойца */
+  if (fitBtn) fitBtn.onclick = () => (isPhone() && Z.fit ? zoomReset(false, false, true) : zoomReset(true));
 }

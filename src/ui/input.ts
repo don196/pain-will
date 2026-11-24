@@ -17,7 +17,7 @@ import { ev, uName } from '../rules/log';
 import { hiddenFrom, unitLight } from '../rules/light';
 import { validFlash } from '../rules/magic';
 import { koAt } from '../rules/pain';
-import { hAt, isStairs } from '../rules/height';
+import { hAt, hasHeights, isStairs } from '../rules/height';
 import { adLeft, canActiveDefend, resist } from '../rules/reactions';
 import { activeMods, hitCalc, speedOf } from '../rules/stats';
 import { openWounds } from '../rules/wounds';
@@ -223,6 +223,35 @@ export function heightTip(lv: number, st: boolean) {
     return `<b>Уровень ${lv}</b><div class="m">Сверху атаки +2. Пунктир по краю — подъём на 1 уровень за лишнее ОД, толстая кромка — 2 уровня и больше, пешком не пройти. Спуск на 1 — без доплаты; столкнутый с края получает Боль по высоте, с 3 уровней — рану.</div>`;
   return `<b>Яма, уровень ${lv}</b><div class="m">Отсюда виден только край. Выбраться на 1 уровень — лишнее ОД, перепад в 2 и больше пешком не пройти.</div>`;
 }
+/* Что за клетка: предмет, высота, лестница, дверь, решётка. Пустая строка — нечего показать. */
+export function cellTipHTML(p) {
+  const d = doorAt(p.x, p.y),
+    b = barsAt(p.x, p.y),
+    hv = hAt(p.x, p.y),
+    st = isStairs(p.x, p.y),
+    td = terrDef(p.x, p.y),
+    to = terrMain(p.x, p.y).t;
+  if (td && (!td.collapse || S.editor))
+    return `<b>${esc(td.name)}</b>${td.hp != null ? ` · прочность ${to.hp}/${td.hp}` : ''}${hv ? ' · высота ' + hv : ''}<div class="m">${terrHint(td)}</div>`;
+  if (hv || st) return heightTip(hv, st);
+  if (!S.editor && (d || b))
+    return d
+      ? `Дверь: ${d.open ? 'открыта' : 'закрыта'}${d.locked ? ', заперта' : ''}`
+      : `Решётка: свет проходит, пройти нельзя, ${b.shoot ? 'бить сквозь неё можно' : 'бить сквозь неё нельзя'}`;
+  return '';
+}
+/* Телефон: долгое нажатие на клетку — её карточка на несколько секунд. */
+let cellTipT = 0;
+export function showCellTip(x: number, y: number, cx: number, cy: number) {
+  const tip = $('#tip');
+  tip.innerHTML = cellTipHTML({ x, y }) || `Пол${hasHeights() ? ' · уровень 0' : ''}`;
+  tip.hidden = false;
+  const r = tip.getBoundingClientRect();
+  tip.style.left = Math.max(8, Math.min(innerWidth - r.width - 8, cx - r.width / 2)) + 'px';
+  tip.style.top = Math.max(8, cy - r.height - 24) + 'px';
+  clearTimeout(cellTipT);
+  cellTipT = window.setTimeout(hideTip, 4000);
+}
 export function hideTip() {
   $('#tip').hidden = true;
 }
@@ -235,24 +264,12 @@ export function showTip(e, p) {
     if (o && !S.editor) {
       tip.innerHTML = `<b>${esc(o.name)}</b> · ${hpTxt(o)}${hAt(o.x, o.y) ? ' · высота ' + hAt(o.x, o.y) : ''}<div class="m">${`стойкость ${resist(o)}`} · броня ${armorTxt(o)} · ОД ${o.od}${o.side !== S.phase ? ' (запас реакций)' : ''} · акт. защита ${adLeft(o) > 0 ? 'есть' : 'нет'} · ${LIGHT_RU[unitLight(o)]}${o.nv ? ', ночное зрение' : ''}</div>`;
     } else {
-      const d = doorAt(p.x, p.y),
-        b = barsAt(p.x, p.y),
-        hv = hAt(p.x, p.y),
-        st = isStairs(p.x, p.y),
-        td = terrDef(p.x, p.y),
-        to = terrMain(p.x, p.y).t;
-      if (td && (!td.collapse || S.editor)) {
-        tip.innerHTML = `<b>${esc(td.name)}</b>${td.hp != null ? ` · прочность ${to.hp}/${td.hp}` : ''}${hv ? ' · высота ' + hv : ''}<div class="m">${terrHint(td)}</div>`;
-      } else if (hv || st) {
-        tip.innerHTML = heightTip(hv, st);
-      } else if (!S.editor && (d || b)) {
-        tip.innerHTML = d
-          ? `Дверь: ${d.open ? 'открыта' : 'закрыта'}${d.locked ? ', заперта' : ''}`
-          : `Решётка: свет проходит, пройти нельзя, ${b.shoot ? 'бить сквозь неё можно' : 'бить сквозь неё нельзя'}`;
-      } else {
+      const html = cellTipHTML(p);
+      if (!html) {
         hideTip();
         return;
       }
+      tip.innerHTML = html;
     }
   } else {
     const a = A[cur];

@@ -5,7 +5,7 @@ import { setSound, sfxLog, soundOn } from './ui/sound';
 import { appendLog, drawFloor, drawLight, flash, fxLine, fxText, renderTokens } from './ui/board';
 import { askChoice } from './ui/prompt';
 import { play } from './ui/anim';
-import { initZoom, zoomReset } from './ui/zoom';
+import { LP, initZoom, zoomReset } from './ui/zoom';
 import './debug';
 import { SCN } from './data/scenarios';
 import { isHuman } from './rules/actions';
@@ -16,7 +16,7 @@ import { CTX, closeCtx } from './ui/ctxmenu';
 import { BAL_V, OLD_DATA, loadData, openData } from './ui/data-editor';
 import { toggleEditor } from './ui/editor';
 import { loadScenario, restart, startGame } from './ui/game';
-import { endTurnUI, hideTip, notePointer, onCellClick, onCellHover } from './ui/input';
+import { endTurnUI, hideTip, notePointer, onCellClick, onCellHover, showCellTip } from './ui/input';
 import { redo, undo } from './ui/history';
 import { applyTables } from './rules/pain';
 import { closeModal, openNotes, openRules } from './ui/modals';
@@ -35,6 +35,10 @@ function init(data) {
     if (!SIMULATING) loadScenario(e.target.value);
   };
   $('#btnRestart').onclick = () => restart();
+  $('#btnRestart2').onclick = () => {
+    ($('#tmenu') as HTMLDetailsElement).open = false;
+    restart();
+  };
   $('#btnEditor').onclick = () => toggleEditor(!S.editor);
   $('#btnOdds').onclick = openOdds;
   $('#btnSim').onclick = openSim;
@@ -163,6 +167,7 @@ function init(data) {
     }, 120);
   });
   initZoom();
+  LP.cell = showCellTip;
   initPhone();
   requestAnimationFrame(loop);
   const lay = data && data.layout && data.layout.units ? data.layout : null;
