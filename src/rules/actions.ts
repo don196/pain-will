@@ -10,8 +10,9 @@ import {
 import type { Action, Opts, Unit } from '../types';
 import { A, ATTACK_KINDS } from '../data/actions';
 import { DIS, DISP, DIS_ICON } from '../data/disorders';
-import { WNAME } from '../data/labels';
+import { AREA_RU, WDEG_RU, WNAME } from '../data/labels';
 import { resolveAttack } from './attack';
+import { allyScreen } from './geometry';
 import {
   doHabits,
   doOrderBack,
@@ -25,7 +26,7 @@ import {
   v2PrepCheck,
 } from './combat';
 import { applyDamage, release } from './damage';
-import { critWill, disForm, disLock, disOf, guiltNext, oddRoll, sadFail, woundedT } from './disorders';
+import { critWill, disForm, disLock, disOf, distrustOk, guiltNext, oddRoll, sadFail, woundedT } from './disorders';
 import {
   adjOk,
   bfs,
@@ -48,11 +49,11 @@ import { chooseSnarePart, doEscapeLasso, immobile, lassoPart, lassoTarget, relea
 import { hiddenFrom } from './light';
 import { ev, log, sleep, uName } from './log';
 import { doCurse2, doFlash, fireLine, fireSources, spellRoll, validFlash } from './magic';
-import { doRevive, edgeOk, onEdge } from './pain';
+import { doRevive, edgeOk, limOf, onEdge, painOf } from './pain';
 import { escapePrisonGrip, prisonChainCircle, prisonChainIntercept, releasePrisonGrip, tryPrisonGrab } from './prisoners';
 import { reactWants } from './reactions';
 import { checkDegree, getEff, hasEff, hitCalc, modsStr, removeEff, reqOk, speedOf, stat } from './stats';
-import { doBandage, needsCare } from './wounds';
+import { doBandage, needsCare, openWounds, syncBleed } from './wounds';
 import { SET } from '../settings';
 import { S, byId, friends, hostiles } from '../state';
 import { HXD, cheb, d20, esc, hd, key, pick, sgn, sum, sz, unkey } from '../util';
@@ -176,12 +177,16 @@ export function canTarget0(u: Unit, act: Action, t, from, friendly?) {
       adjOk(from, t) &&
       !S.units.some(o => !o.down && inFoot(o, t.x, t.y))
     );
+  if (t && t.down && act.kind === 'cauterHeal' && t.ko && !t.dead)
+    return t.side === u.side && cheb(from, t) === 1 && adjOk(from, t) && openWounds(t).length > 0;
   if (t && t.down && act.kind === 'bandage' && t.ko && !t.dead)
     return t.side === u.side && cheb(from, t) === 1 && adjOk(from, t) && needsCare(t);
   if (!t || t.down) return false;
   if (act.ranged && t.covered && coverBetween(from, t)) return false;
   const d = cheb(from, t);
   if (act.kind === 'bandage') return t.side === u.side && (d === 0 || (d === 1 && adjOk(from, t))) && needsCare(t);
+  if (act.kind === 'cauterHeal')
+    return t.side === u.side && (d === 0 || (d === 1 && adjOk(from, t))) && openWounds(t).length > 0;
   if (t.id === u.id) return false;
   if (act.kind === 'swap') return t.side === u.side && d === 1 && adjOk(from, t) && sz(t) === 1 && true && true && true;
   if (act.kind === 'ordnow' || act.kind === 'ordback')
@@ -201,13 +206,29 @@ export function canTarget0(u: Unit, act: Action, t, from, friendly?) {
     if (act.fireSrc && hasEff(u, 'magsight') && !(d <= act.range && los(from, t, u).ok))
       return fireSources().some(s => hd(s.x, s.y, t.x, t.y) <= 3 && fireLine(s, t) && fireLine(s, from));
     if (d > act.range) return false;
-    return los(from, t, u, { ignoreFriendly: !!act.ignoreFriendlyLos }).ok;
+    if (los(from, t, u, { ignoreFriendly: !!act.ignoreFriendlyLos }).ok) return true;
+    return !!screenFor(u, act, t, from);
   }
   if (act.onlyDistance != null && d !== act.onlyDistance) return false;
   const reach = act.reach || 1;
   if (d > reach) return false;
   if (d > 1) return reachClear(from, t, u);
   return d === 1 && adjOk(from, t);
+}
+/* Выстрел через плечо союзника (свод 2.4): только обычный физический выстрел, не дальше 3 свободных гексов до союзника.
+   ИИ стреляет так только вплотную или через 1 гекс и не рискует союзником на пороге или с серьёзной раной. */
+export function screenFor(u: Unit, act, t, from?) {
+  if (!SET.allyFire || !act.ranged || act.magic || !t) return null;
+  const s = allyScreen(from || u, t, u);
+  if (!s) return null;
+  if (!s.ally) return s;
+  if (s.free > 3) return null;
+  if (!isHuman(u.side)) {
+    const al = s.ally;
+    if (s.free > 1 || onEdge(al) || painOf(al) >= limOf(al) - 1) return null;
+    if (Object.values(al.wounds || {}).some((w: any) => w.deg >= 2)) return null;
+  }
+  return s;
 }
 export function validCell(u: Unit, a, x, y) {
   if (
@@ -332,6 +353,8 @@ export function hasTargets(u: Unit, id) {
       );
     case 'revive':
       return S.units.some(o => canTarget(u, a, o));
+    case 'cauterHeal':
+      return S.units.some(o => canTarget(u, a, o));
     case 'trap':
       return trapCells(u).length > 0;
     case 'door':
@@ -349,7 +372,19 @@ export async function perform(u: Unit, id, tgt?) {
   const a = A[id];
   if (!okAct(u, id)) return false;
   if (
-    ['attack', 'swap', 'bandage', 'push', 'curse2', 'habits', 'ordnow', 'ordback', 'revive', 'prisonGrab'].includes(a.kind) &&
+    [
+      'attack',
+      'swap',
+      'bandage',
+      'cauterHeal',
+      'push',
+      'curse2',
+      'habits',
+      'ordnow',
+      'ordback',
+      'revive',
+      'prisonGrab',
+    ].includes(a.kind) &&
     tgt &&
     !canTarget(u, a, tgt)
   )
@@ -357,8 +392,12 @@ export async function perform(u: Unit, id, tgt?) {
   if (a.kind === 'flash' && !(tgt && validFlash(u, tgt))) return false;
   if (a.kind === 'trap' && !(tgt && validTrap(u, tgt))) return false;
   if ((a.kind === 'objectStrike' || a.kind === 'objectPush') && !(tgt && validCell(u, a, tgt.x, tgt.y))) return false;
-  /* полное укрытие держится до следующего своего действия */
-  if (u.covered && id !== 'coverFull') u.covered = false;
+  /* полное укрытие держится до следующего своего действия; выходящего из укрытия встречает подготовленный выстрел */
+  if (u.covered && id !== 'coverFull') {
+    u.covered = false;
+    await v2PrepCheck(u, { ranged: true });
+    if (u.down || S.over) return true;
+  }
   if (a.kind === 'move') return performMove(u, tgt.x, tgt.y, id);
   if (u.guilt && u.guilt.stage === 'band' && id === 'bandage' && tgt && tgt.id !== u.guilt.id) return false;
   if (u.mustAttack && disOf(u, 'aggr') === 2 && a.kind === 'attack' && !a.magic && u.side === S.phase) {
@@ -494,6 +533,9 @@ export async function perform(u: Unit, id, tgt?) {
     case 'wswap':
       doWield(u, nextWeapon(u));
       break;
+    case 'cauterHeal':
+      if (await distrustOk(u, tgt, 'прижигание')) await doCauterHeal(u, tgt);
+      break;
     case 'pair': {
       const ts = pairTargets(u, tgt);
       if (!ts.length) ev(`${uName(u)}: ${a.name} — некого задеть`);
@@ -507,10 +549,10 @@ export async function perform(u: Unit, id, tgt?) {
       break;
     }
     case 'bandage':
-      doBandage(u, tgt, a);
+      if (await distrustOk(u, tgt, 'перевязка')) doBandage(u, tgt, a);
       break;
     case 'revive':
-      doRevive(u, tgt);
+      if (await distrustOk(u, tgt, 'привести в чувство')) doRevive(u, tgt);
       break;
     case 'trap':
       u.traps--;
@@ -622,7 +664,11 @@ export async function performMove(u: Unit, x, y, id = 'move') {
   const cost = a.stepback ? 1 : v.d <= sp ? 1 : 2;
   if (cost > u.od) return false;
   interrupt(u, 'добровольное перемещение');
-  if (u.covered) u.covered = false;
+  if (u.covered) {
+    u.covered = false;
+    await v2PrepCheck(u, { ranged: true });
+    if (u.down || S.over) return true;
+  }
   u.od -= cost;
   u._acted = true;
   u._once = u._once || {};
@@ -728,7 +774,8 @@ export function trapCheck(u: Unit) {
   if (S.stat) S.stat.trap = (S.stat.trap || 0) + 1;
   applyDamage(u, dmg, null);
   if (!u.down) {
-    u.bleed++;
+    u.bleedX = (u.bleedX || 0) + 1;
+    syncBleed(u);
     if (sz(u) === 1) {
       u.effects = u.effects.filter(e => e.type !== 'snare');
       u.effects.push({
@@ -904,4 +951,27 @@ export function doDoor(u: Unit, c) {
 }
 export function canControl(u: Unit) {
   return !!u && !u.down && !S.over && !S.busy && !S.editor && u.side === S.phase && isHuman(u.side);
+}
+
+/* Прижигание Хельги (свод 2.4, §11.4): 1 Боль сквозь броню, затем закрывается одна выбранная открытая рана. */
+export async function doCauterHeal(u: Unit, t) {
+  const ws = openWounds(t).sort((x, y) => y[1].deg - x[1].deg);
+  if (!ws.length) return;
+  let ar = ws[0][0];
+  if (ws.length > 1 && isHuman(u.side) && !S.sim) {
+    const v = await view.askChoice(
+      'Прижигание',
+      `<p>Какую открытую рану ${t === u ? 'себе' : uName(t)} закрыть?</p>`,
+      ws.map(([a, w]) => ({ v: a, label: AREA_RU[a], sub: WDEG_RU[w.deg] })),
+    );
+    if (v) ar = v;
+  }
+  ev(
+    `🔥 Прижигание: ${uName(u)} прижигает ${t === u ? 'себе' : 'ране ' + uName(t)} — ${AREA_RU[ar]}, 1 Боль сквозь броню`,
+  );
+  applyDamage(t, 1, null);
+  const w = t.wounds[ar];
+  if (w) w.open = false;
+  syncBleed(t);
+  view.fxText(t, 'прижигание', 'heal');
 }

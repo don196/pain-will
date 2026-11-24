@@ -995,7 +995,7 @@ export function renderHL() {
       }
       for (const t of S.units)
         if (canTarget(u, a, t))
-          addU(t, ['swap', 'bandage', 'ordnow', 'ordback', 'revive'].includes(a.kind) ? 'ally' : 'tgt');
+          addU(t, ['swap', 'bandage', 'cauterHeal', 'ordnow', 'ordback', 'revive'].includes(a.kind) ? 'ally' : 'tgt');
     }
   }
   if (!S.editor && u && !u.down) addU(u, 'selc');

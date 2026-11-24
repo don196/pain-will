@@ -34,7 +34,7 @@ import {
 import { lassoPart } from '../rules/lasso';
 import { hiddenFrom, unitLight } from '../rules/light';
 import { log, sleep } from '../rules/log';
-import { onEdge } from '../rules/pain';
+import { limOf, onEdge, painOf } from '../rules/pain';
 import { RANGE_OPT, openT } from '../rules/reactions';
 import { AREA_BUFF, areaHasTarget, hasEff, hitCalc, isArea, speedOf, stat } from '../rules/stats';
 import { careNeed, needsCare } from '../rules/wounds';
@@ -198,6 +198,17 @@ export function aiSupport(u: Unit, foes) {
       return {
         id: 'bandage',
         t: best.t,
+      };
+  }
+  /* Прижигание (Хельга): если бинтов нет, останавливает кровотечение — себе, соседу или лежащему без сознания */
+  if (okAct(u, 'cauterHeal') && !okAct(u, 'bandage')) {
+    const cand = [...S.units.filter(o => o.side === u.side && o.down && o.ko && !o.dead), u, ...friends(u)].filter(
+      o => o.bleed > 0 && canTarget(u, A.cauterHeal, o) && (o.down || painOf(o) < limOf(o) - 1),
+    );
+    if (cand.length)
+      return {
+        id: 'cauterHeal',
+        t: cand[0],
       };
   }
   if (!onEdge(u)) {

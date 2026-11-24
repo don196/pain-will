@@ -4,9 +4,10 @@ import { A } from '../data/actions';
 import { T, tplOf } from '../data/fighters';
 import { AREA_RU, DIR_RU, EFF_RU, ST_ICON, ST_RU, WDEG_RU } from '../data/labels';
 import { canTarget, contestLog, isHuman, trapCheck, weaponsOf, zocWeapon } from './actions';
+import { distrustOk } from './disorders';
 import { knockPlan, resolveAttack } from './attack';
 import { applyDamage, downUnit } from './damage';
-import { fallPain } from './height';
+import { fallPain, hAt, hasHeights, isStairs } from './height';
 import { inB, isFloor, near1, unitAt } from './geometry';
 import { LASSO_R, SNARE_PART, immobile, lassoPart, lassoSnap, lassoTarget, releaseLasso } from './lasso';
 import { hiddenFrom } from './light';
@@ -15,10 +16,10 @@ import { takeVuln, weakMag } from './magic';
 import { onEdge, painInfo, painPen, painTxt, painWear, wClass } from './pain';
 import { ap3Degree, defThr, dexFree, isSpell } from './reactions';
 import { actId, dmgAfter, getEff, hasEff, hitCalc, modsStr, pContest, removeEff, reqOk, stat } from './stats';
-import { AREAS, addWound, vital, woundPenTxt } from './wounds';
+import { AREAS, addWound, syncBleed, vital, woundPenTxt } from './wounds';
 import { SET, TBL } from '../settings';
 import { S, byId, friends, hostiles } from '../state';
-import { HXD, cheb, d20, esc, hcube, hd, pct, pick, sum, sz } from '../util';
+import { HXD, cheb, d20, esc, hcube, hd, nbrDirs, pct, pick, sum, sz } from '../util';
 import { view } from '../view';
 export const STRONG = {
   ripple: 'blind2',
@@ -105,6 +106,40 @@ export function fall(u: Unit, h) {
   applyDamage(u, n, null);
   if (h >= 3 && !u.down) addWound(u, pick(AREAS), { deg: h >= 5 ? 3 : h >= 4 ? 2 : 1 });
 }
+/* Свод 2.4: упал на другого бойца — оба падают с высоты на 1 меньше и сбиты; упавший — на свободную соседнюю клетку,
+   а если её нет, вытесняет того, на кого упал; если и тому некуда — остаётся на краю и не падает. */
+export function fallOnto(t: Unit, kb) {
+  const o = kb.onto,
+    h = Math.max(0, kb.fall - 1),
+    to = kb.to;
+  const free = (x, y) => isFloor(x, y) && !unitAt(x, y) && Math.abs(hAt(x, y) - hAt(to.x, to.y)) <= 1;
+  const spot = nbrDirs(to.x, to.y)
+    .map(([dx, dy]) => ({ x: to.x + dx, y: to.y + dy }))
+    .find(c => free(c.x, c.y));
+  if (spot) {
+    t.x = spot.x;
+    t.y = spot.y;
+  } else {
+    const o2 = nbrDirs(o.x, o.y)
+      .map(([dx, dy]) => ({ x: o.x + dx, y: o.y + dy }))
+      .find(c => free(c.x, c.y));
+    if (!o2) {
+      ev(`${uName(t)} удерживается на краю: внизу некуда упасть`);
+      return;
+    }
+    o.x = o2.x;
+    o.y = o2.y;
+    t.x = to.x;
+    t.y = to.y;
+  }
+  ev(`⤵ ${uName(t)} падает с высоты ${kb.fall} на ${uName(o)}: оба — как с высоты ${h}`);
+  view.renderTokens();
+  for (const v of [t, o])
+    if (!v.down) {
+      if (h > 0) fall(v, h);
+      else setProne(v, 'падение');
+    }
+}
 export function addStrong(u: Unit, type) {
   u.effects = u.effects.filter(e => e.type !== type);
   u.effects.push({
@@ -121,14 +156,21 @@ export function addSt(u: Unit, k, n, why) {
   if (!u || u.down || !(n > 0)) return;
   if (k === 'unst' && (u.prone || sz(u) > 1)) return;
   if (k === 'heat' && inWater(u)) return;
+  /* «Горючий» вспыхивает: эффект снимается, ещё 2 Нагрева */
+  if (k === 'heat' && u.effects && u.effects.some(e => e.type === 'oily')) {
+    u.effects = u.effects.filter(e => e.type !== 'oily');
+    ev(`🔥 ${uName(u)}: горючее на одежде вспыхивает — ещё 2 Нагрева`);
+    n += 2;
+  }
   u.st = u.st || {};
   u.st[k] = (u.st[k] || 0) + n;
   ev(`${ST_ICON[k]} ${uName(u)}: ${ST_RU[k]} +${n}${why ? ' (' + why + ')' : ''}, стаков ${u.st[k]}`);
   if (k === 'heat') {
+    /* решение 23.11: три стака Нагрева — 1 Боль сквозь броню */
     while (u.st.heat >= 3 && !u.down) {
       u.st.heat -= 3;
-      ev(`🔥 Горение: три стака Нагрева сгорают — ${uName(u)} получает ${'2 Боли'} сквозь броню`);
-      applyDamage(u, 2, null);
+      ev(`🔥 Горение: три стака Нагрева сгорают — ${uName(u)} получает 1 Боль сквозь броню`);
+      applyDamage(u, 1, null);
     }
     return;
   }
@@ -180,6 +222,7 @@ export function cauterize(u: Unit, ar0) {
     if (S.stat) S.stat.wounds++;
     ev(`🔥 Прижигание: ${uName(u)} — ${AREA_RU[ar]}, закрытая обычная рана, без кровотечения`);
   }
+  syncBleed(u);
   view.fxText(u, 'ожог', 'dmg');
   return 'wound';
 }
@@ -437,10 +480,11 @@ export async function v2Defend(def: Unit, att: Unit, act: Action, total, pas, op
   if ((o.mode === 'parry' || o.mode === 'block') && def.effects.some(e => e.type === 'bucklerOpen')) {
     def.effects = def.effects.filter(e => e.type !== 'bucklerOpen');
   }
+  /* натуральные исходы для защиты (встречная проверка без степеней): 1 — провал, 20 — +5 */
   const r = d20(),
-    tot = r + o.m,
+    tot = r + o.m + (SET.natRolls && r === 20 ? 5 : 0),
     margin = tot - total,
-    thrFail = dth > 0 && r <= dth,
+    thrFail = (dth > 0 && r <= dth) || (SET.natRolls && r === 1),
     ok = margin > 0 && !thrFail;
   if (S.stat) {
     S.stat.v2def = S.stat.v2def || {};
@@ -578,7 +622,9 @@ export async function v2OnHit(att: Unit, act: Action, def: Unit, deg, dmg, x, hb
   if (sp && basic && dmg > 0 && hb !== 'wound') {
     const ar = pick(AREAS);
     if (sp.areas.includes(ar)) {
-      ev(`⌖ Слабое место: удар пришёлся в выявленную область (${AREA_RU[ar]}) — рана`);
+      ev(`⌖ Слабое место: удар пришёлся в выявленную область (${AREA_RU[ar]}) — рана, метка израсходована`);
+      sp.areas = sp.areas.filter(a => a !== ar);
+      if (!sp.areas.length) removeEff(def, 'spots');
       addWound(def, ar);
     } else
       ev(
@@ -607,7 +653,8 @@ export async function v2OnHit(att: Unit, act: Action, def: Unit, deg, dmg, x, hb
   }
 }
 
-/* Толчок: встречная проверка Силы; 1–4 — 1 гекс, 5–9 — 2, 10+ — 3. Не вызывает атак зоны контроля. */
+/* Толчок (свод 2.4): встречная проверка Силы; перевес 1–9 — 1 гекс, 10+ — 2. Не вызывает атак зоны контроля.
+   Натуральная 1 — провал и Неустойчивость толкающему, натуральная 20 — +5. С лестницы сверху вниз — сразу сбит. */
 export async function doPush(u: Unit, t, opt: Opts = {}) {
   if (sz(t) > 1) {
     ev(`${uName(t)} слишком велик — толчок не действует`);
@@ -641,10 +688,16 @@ export async function doPush(u: Unit, t, opt: Opts = {}) {
     },
   ];
   const ra = d20(),
-    rb = d20(),
-    diff = ra + sum(ma) - (rb + sum(mb)),
-    ok = diff > 0;
-  let n = diff >= 10 ? 3 : diff >= 5 ? 2 : diff >= 1 ? 1 : 0;
+    rb = d20();
+  if (SET.natRolls) {
+    if (ra === 20) ma.push({ l: 'натуральная 20', v: 5 });
+    if (rb === 20) mb.push({ l: 'натуральная 20', v: 5 });
+  }
+  let diff = ra + sum(ma) - (rb + sum(mb));
+  if (SET.natRolls && ra === 1) diff = Math.min(diff, 0);
+  else if (SET.natRolls && rb === 1) diff = Math.max(diff, 1);
+  const ok = diff > 0;
+  let n = diff >= 10 ? 2 : diff >= 1 ? 1 : 0;
   if (ok && takeVuln(t)) n *= 2;
   contestLog(
     `${uName(u)}: толчок${opt.why ? ' (' + opt.why + ')' : ''} → ${uName(t)}`,
@@ -658,28 +711,50 @@ export async function doPush(u: Unit, t, opt: Opts = {}) {
     diff,
   );
   if (S.stat) S.stat.push = (S.stat.push || 0) + 1;
+  if (SET.natRolls && ra === 1) addSt(u, 'unst', 1, 'натуральная 1');
   if (!ok) return false;
+  if (hasHeights() && isStairs(t.x, t.y) && hAt(u.x, u.y) > hAt(t.x, t.y) && !t.prone) {
+    ev(`${uName(t)} столкнут с лестницы сверху`);
+    addSt(t, 'unst', 2, 'толчок сверху на лестнице');
+  }
   await shove(u, t, n);
   return true;
 }
 export async function shove(u: Unit, t, n) {
   let hitWhat = null,
     other = null,
-    moved = 0;
+    moved = 0,
+    drop = 0;
+  t._spk = 0;
   for (let i = 0; i < n; i++) {
     const kb = knockPlan(u, t);
     if (kb.held) {
       ev(kb.big ? `${uName(t)} невосприимчив к перемещению` : `${uName(t)} удерживается и не сдвигается`);
       break;
     }
+    if (kb.onto) {
+      if (drop) fall(t, drop);
+      drop = 0;
+      if (!t.down) fallOnto(t, kb);
+      moved++;
+      break;
+    }
     if (kb.to) {
+      const fx = t.x,
+        fy = t.y;
       t.x = kb.to.x;
       t.y = kb.to.y;
       moved++;
       view.renderTokens();
       await sleep(70);
       if (kb.fall) {
-        fall(t, kb.fall);
+        /* по лестнице считается весь пройденный перепад до остановки, с края — падение сразу */
+        if (kb.fall === 1 && (isStairs(fx, fy) || isStairs(t.x, t.y)) && i < n - 1) {
+          drop += 1;
+          continue;
+        }
+        fall(t, drop + kb.fall);
+        drop = 0;
         break;
       }
       terrainStep(t, t.x, t.y, { forced: true });
@@ -691,6 +766,7 @@ export async function shove(u: Unit, t, n) {
     other = kb.o || null;
     break;
   }
+  if (drop && !t.down) fall(t, drop);
   if (moved) {
     interrupt(t, 'толчок');
     const lt = t.lassoT && lassoTarget(t);
@@ -733,10 +809,12 @@ export function prepWeapon(p, t) {
   }
   return best && best.id;
 }
-export async function v2PrepCheck(mover) {
+export async function v2PrepCheck(mover, opt: Opts = {}) {
   for (const p of S.units) {
     if (p.down || p.side === mover.side || !p.prep || p.stunned || mover.down || S.over) continue;
     if ((p.od || 0) <= 0) continue;
+    /* выход из полного укрытия: срабатывает только подготовленный выстрел (свод 2.4, §10.1.5) */
+    if (opt.ranged && (p.prep.kind === 'push' || !(prepWeapon(p, mover) && A[prepWeapon(p, mover)].ranged))) continue;
     if (p.prep.kind === 'push') {
       if (!near1(p, mover) || sz(mover) > 1) continue;
       p.prep = null;
@@ -841,6 +919,7 @@ export async function shieldControl(u: Unit, to, hit) {
   return true;
 }
 export async function doOrderNow(u: Unit, ally: Unit) {
+  if (!(await distrustOk(u, ally, 'приказ «Сейчас!»'))) return;
   const foes = hostiles(u)
     .filter(o => !hiddenFrom(ally, o) || cheb(ally, o) <= 1)
     .sort((a, b) => cheb(ally, a) - cheb(ally, b))
@@ -873,6 +952,7 @@ export async function doOrderNow(u: Unit, ally: Unit) {
   );
 }
 export async function doOrderBack(u: Unit, ally: Unit) {
+  if (!(await distrustOk(u, ally, 'приказ «Отступаем!»'))) return;
   const cells = [];
   HXD[ally.y & 1].forEach(([dx, dy], i) => {
     const x = ally.x + dx,
@@ -910,13 +990,24 @@ export async function doOrderBack(u: Unit, ally: Unit) {
   view.renderTokens();
   trapCheck(ally);
 }
+/* Выявление повадок (свод 2.4, §9): d20 + Ловкость против 10 + Интуиция цели + особое сопротивление.
+   Ниже порога — 1 метка, порог — 2, на 5+ выше — 3; разные области из шести. Провала нет. */
 export function doHabits(u: Unit, t) {
+  const r = d20(),
+    res = (T[t.tpl] && T[t.tpl].habitRes) || 0,
+    dc = 10 + stat(t, 'int') + res,
+    tot = r + stat(u, 'dex'),
+    diff = tot - dc;
+  let n = diff >= 5 ? 3 : diff >= 0 ? 2 : 1;
+  if (SET.natRolls && r === 20) n = Math.min(3, n + 1);
   const areas = [];
-  const limbs = ['armL', 'armR', 'legL', 'legR'];
-  while (areas.length < 2) {
-    const a = pick(limbs);
+  while (areas.length < n) {
+    const a = pick(AREAS);
     if (!areas.includes(a)) areas.push(a);
   }
+  ev(
+    `⌖ Выявление повадок: d20 <b>${r}</b> + Ловкость ${stat(u, 'dex')} = <b>${tot}</b> против 10 + Интуиция ${stat(t, 'int')}${res ? ' + сопротивление ' + res : ''} = ${dc} — меток ${n}`,
+  );
   removeEff(t, 'spots');
   t.effects.push({
     type: 'spots',
@@ -926,7 +1017,7 @@ export function doHabits(u: Unit, t) {
     end: 1e9,
   });
   ev(
-    `⌖ Выявление повадок: у ${uName(t)} слабые места — ${areas.map(a => AREA_RU[a]).join(' и ')}. До следующего хода ${uName(u)} обычная атака с уроном, попавшая туда (d6), даёт рану`,
+    `⌖ У ${uName(t)} слабые места — ${areas.map(a => AREA_RU[a]).join(', ')}. До следующего хода ${uName(u)} обычное попадание с Болью, пришедшееся туда (d6), — гарантированная рана; сработавшая метка исчезает`,
   );
   ev(
     `<span class="dim">Предсказание действия: ведущий называет, что ${esc(t.name)} сделает в свой ход (на поле не отражается)</span>`,

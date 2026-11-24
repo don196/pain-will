@@ -1,6 +1,6 @@
 import type { Unit } from '../types';
 import { DISP, DIS_ICON } from '../data/disorders';
-import { changeWill, disOf, guiltWatch } from './disorders';
+import { disOf, guiltWatch, willEvent, witnessDown } from './disorders';
 import { releaseLasso } from './lasso';
 import { clearPrisonGripOnDown } from './prisoners';
 import { ev, log, uName } from './log';
@@ -49,7 +49,7 @@ export function downUnit(u: Unit, src?) {
       src.od = 0;
       src._endTurn = true;
     }
-    for (const o of ws) changeWill(o, -P.will, 'Жестокое добивание');
+    for (const o of ws) willEvent(o, -3, 'Жестокое добивание', 'cruel:' + u.id);
   }
   if (S.stat) {
     (S.stat.kills = S.stat.kills || []).push([u.side, S.round, u.tpl]);
@@ -83,6 +83,7 @@ export function downUnit(u: Unit, src?) {
     ev(`🔥 Факел ${uName(u)} падает на пол и продолжает гореть`);
   }
   if (S.sel === u.id && S.act) S.act = null;
+  witnessDown(u);
   checkOver();
 }
 export function checkOver() {
@@ -93,6 +94,8 @@ export function checkOver() {
   else if (!en) S.over = 'pc';
   if (S.over)
     log(`<div class="lb">${S.over === 'pc' ? 'Победа героев' : 'Герои пали'} · раунд ${S.round}</div>`, 'sys');
+  /* победа в значимом бою: +3 Воли всем участникам-победителям (живым) */
+  if (S.over === 'pc') for (const u of S.units) if (u.side === 'pc' && !u.dead) willEvent(u, 3, 'Победа в бою', 'win');
 }
 export function release(g, quiet?) {
   const t = byId(null);

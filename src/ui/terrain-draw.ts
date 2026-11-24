@@ -256,10 +256,56 @@ function box(g, cx, cy, w, dp, h, tint) {
   return { x0, x1, top: cy - d2 - h, front: cy + d2 - h, bottom: cy + d2 };
 }
 
+/* Брусок вдоль отрезка p1→p2 (экранные центры клеток): hw — полуширина в плоскости поля, h — высота, ext — запас за центрами.
+   Возвращает точку верха у первого конца (для подушки). */
+function longBox(g, p1, p2, hw, h, tint, ext) {
+  const vx = p2.x - p1.x,
+    vy = (p2.y - p1.y) / KY,
+    L = Math.hypot(vx, vy) || 1,
+    ux = vx / L,
+    uy = vy / L,
+    nx = -uy * hw,
+    ny = ux * hw * KY;
+  const a = { x: p1.x - ux * ext, y: p1.y - uy * ext * KY },
+    b = { x: p2.x + ux * ext, y: p2.y + uy * ext * KY };
+  const base = [
+    [a.x + nx, a.y + ny],
+    [b.x + nx, b.y + ny],
+    [b.x - nx, b.y - ny],
+    [a.x - nx, a.y - ny],
+  ];
+  const top = base.map(([x, y]) => [x, y - h]);
+  const cy = base.reduce((s, p) => s + p[1], 0) / 4,
+    cx = base.reduce((s, p) => s + p[0], 0) / 4;
+  g.strokeStyle = 'rgba(17,12,8,.6)';
+  g.lineWidth = 1;
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) % 4,
+      my = (base[i][1] + base[j][1]) / 2,
+      mx = (base[i][0] + base[j][0]) / 2;
+    if (my < cy - 0.01) continue;
+    g.fillStyle = shade(tint, mx < cx ? 0.66 : 0.78);
+    g.beginPath();
+    g.moveTo(base[i][0], base[i][1]);
+    g.lineTo(base[j][0], base[j][1]);
+    g.lineTo(top[j][0], top[j][1]);
+    g.lineTo(top[i][0], top[i][1]);
+    g.closePath();
+    g.fill();
+    g.stroke();
+  }
+  g.fillStyle = shade(tint, 1.05);
+  g.beginPath();
+  top.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+  g.closePath();
+  g.fill();
+  g.stroke();
+  return { x: p1.x - ux * ext * 0.5, y: p1.y - uy * ext * 0.5 * KY - h };
+}
 /* Объёмные предметы рисуются вместе со стенами — от дальних к ближним. */
 export function drawTerrainObj(g, x, y) {
   const t = S.terrain && S.terrain[key(x, y)];
-  if (!t) return;
+  if (!t || t.link) return;
   const d = TERRAIN[t.type];
   if (!d || !d.tall) return;
   const cs = CELL,
@@ -317,13 +363,16 @@ export function drawTerrainObj(g, x, y) {
       g.lineTo(c.x + dx * cs, b.top - cs * 0.14);
     }
     g.stroke();
-  } else if (t.type === 'bed') {
-    box(g, c.x, c.y, cs * 0.64, cs * 0.42, h, d.tint);
-    g.fillStyle = 'rgba(240,230,210,.75)';
-    const pw = ROT ? cs * 0.14 : cs * 0.18;
-    g.fillRect(c.x - cs * 0.3, c.y - h - cs * 0.12 * KY, pw, cs * 0.16 * KY);
-  } else if (t.type === 'bench') {
-    box(g, c.x, c.y, cs * 0.64, cs * 0.18, h, d.tint);
+  } else if (t.type === 'bed' || t.type === 'bench') {
+    /* два гекса: брусок от центра одной клетки до центра другой */
+    const p2 = t.part ? hc(t.part[0], t.part[1]) : { x: c.x + cs * 0.5, y: c.y };
+    const top = longBox(g, c, p2, t.type === 'bed' ? cs * 0.26 : cs * 0.12, h, d.tint, cs * 0.34);
+    if (t.type === 'bed') {
+      g.fillStyle = 'rgba(240,230,210,.75)';
+      g.beginPath();
+      g.ellipse(top.x, top.y, cs * 0.12, cs * 0.12 * KY, 0, 0, 7);
+      g.fill();
+    }
   } else if (t.type === 'chair') {
     box(g, c.x, c.y + cs * 0.03, cs * 0.3, cs * 0.28, h * 0.55, d.tint);
     box(g, c.x, c.y - cs * 0.1 * KY, cs * 0.3, cs * 0.05, h * 1.3, d.tint);

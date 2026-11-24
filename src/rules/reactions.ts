@@ -1,8 +1,9 @@
 import { coverBetween } from './terrain';
+import { distrustOk } from './disorders';
 import type { Action, Unit } from '../types';
 import { tplOf } from '../data/fighters';
 import { canTarget, isHuman } from './actions';
-import { stOf } from './combat';
+import { addSt, stOf } from './combat';
 import { near1 } from './geometry';
 import { darkPen } from './light';
 import { ev, uName } from './log';
@@ -54,6 +55,24 @@ export function spendReact(d, mode) {
   d.od = Math.max(0, (d.od || 0) - 1);
 }
 export const openT = t => (t.od || 0) <= 0 && !dexFree(t);
+/* Натуральные исходы d20 (свод 2.4, §11.1). Натуральная 1 — провал при любых модификаторах и последствие по виду:
+   ближний удар и обычная способность — Неустойчивость, выстрел и снарядная магия — Рябь, прочее заклинание — Дезориентация.
+   Натуральная 20 — степень успеха на одну выше (не выше критической). */
+export function nat1Kind(act) {
+  if (act.ranged) return 'ripple';
+  if (act.magic || act.spell || act.kind === 'curse2' || act.kind === 'self') return 'disor';
+  return 'unst';
+}
+export function nat1Side(u, act) {
+  if (!SET.natRolls || !u || u.down) return;
+  const k = nat1Kind(act);
+  addSt(u, k, 1, 'натуральная 1');
+}
+export function nat20Up(deg) {
+  if (!deg || deg.t < 1 || deg.t >= 3) return deg;
+  const up = ap3Degree(deg.t === 1 ? 5 : 10);
+  return { ...up, txt: up.txt + ' (натуральная 20)' };
+}
 export function ap3Degree(diff) {
   return diff >= 10
     ? {
@@ -153,6 +172,7 @@ export async function tryCover(def: Unit, att: Unit, act: Action, opt) {
     const c = coverCost(o);
     if (c) o.od--;
     else if (tplOf(o).guardianLite) o.guardUsedRound = S.round;
+    if (!(await distrustOk(o, def, 'Прикрыть'))) return def;
     ev(
       `🛡 Прикрыть: ${uName(o)} принимает удар вместо союзника (${uName(def)})${c ? ` — 1 очко реакции, осталось ${o.od}` : ' — Перехват, бесплатно'}`,
     );

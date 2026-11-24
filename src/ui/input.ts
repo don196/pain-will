@@ -1,8 +1,17 @@
-import { terrAt, terrDef } from '../rules/terrain';
+import { terrDef, terrMain } from '../rules/terrain';
 import { TERRAIN_HINT as terrHint } from '../data/terrain';
 import { A } from '../data/actions';
 import { LIGHT_RU } from '../data/labels';
-import { canControl, canTarget, perform, performMove, validCell, validThrow, validTrap } from '../rules/actions';
+import {
+  canControl,
+  canTarget,
+  perform,
+  performMove,
+  screenFor,
+  validCell,
+  validThrow,
+  validTrap,
+} from '../rules/actions';
 import { barsAt, bfs, doorAt, footFree, inFoot, los, pairOptions, pathTo, unitAt } from '../rules/geometry';
 import { ev, uName } from '../rules/log';
 import { hiddenFrom, unitLight } from '../rules/light';
@@ -223,7 +232,7 @@ export function showTip(e, p) {
         hv = hAt(p.x, p.y),
         st = isStairs(p.x, p.y),
         td = terrDef(p.x, p.y),
-        to = terrAt(p.x, p.y);
+        to = terrMain(p.x, p.y).t;
       if (td && (!td.collapse || S.editor)) {
         tip.innerHTML = `<b>${esc(td.name)}</b>${td.hp != null ? ` · прочность ${to.hp}/${td.hp}` : ''}${hv ? ' · высота ' + hv : ''}<div class="m">${terrHint(td)}</div>`;
       } else if (hv || st) {
@@ -276,13 +285,13 @@ export function showTip(e, p) {
       }
       const d = doorAt(p.x, p.y),
         td = terrDef(p.x, p.y),
-        to = terrAt(p.x, p.y);
+        to = terrMain(p.x, p.y).t;
       html =
         a.kind === 'door'
-          ? `${d.open ? 'Закрыть' : 'Открыть'} дверь · 1 ОД`
-          : a.kind === 'objectStrike'
-            ? `Ударить: ${esc(td.name)} · 1 ОД<div class="m">d20 + атака против 10; прочность ${to.hp}/${td.hp}</div>`
-            : `Толкнуть: ${esc(td.name)} · 1 ОД<div class="m">${td.hp === 8 ? 'd20 + Сила против 15' : 'катится всегда'}; столкновение — Неустойчивость</div>`;
+            ? `${d.open ? 'Закрыть' : 'Открыть'} дверь · 1 ОД`
+            : a.kind === 'objectStrike'
+              ? `Ударить: ${esc(td.name)} · 1 ОД<div class="m">d20 + атака против 10; прочность ${to.hp}/${td.hp}</div>`
+              : `Толкнуть: ${esc(td.name)} · 1 ОД<div class="m">${td.hp === 8 ? 'd20 + Сила против 15' : 'катится всегда'}; столкновение — Неустойчивость</div>`;
     } else {
       const t = unitAt(p.x, p.y);
       if (!t || !canTarget(u, a, t)) {
@@ -297,6 +306,11 @@ export function showTip(e, p) {
         const h = hitCalc(u, a, t);
         html = `<b>${esc(u.name)} → ${esc(t.name)}</b> · ${esc(a.name)}<div class="big">${pct(h.hit)}</div>`;
         html += `<div class="m">d20 ${sgn(h.M)} против защиты ${h.D}</div>`;
+        if (!los(u, t, u).ok) {
+          const sc = screenFor(u, a, t);
+          if (sc && sc.ally)
+            html += `<div class="zw">Через ${esc(sc.ally.name)}: на d20 1–${2 * (sc.free + 1)} — попадание в него (${pct(0.1 * (sc.free + 1) - 0.05)} с учётом натуральной 1)</div>`;
+        }
         html += `<div class="m">обычный ${pct(h.p[1])} · усиленный ${pct(h.p[2])} · крит ${pct(h.p[3])}</div><div class="m">${'Боль'} по степеням ${h.dm[1]} / ${h.dm[2]} / ${h.dm[3]}${''}</div><div>Ожидаемо <b>${fmtN(h.Eact)}</b> за действие${h.reps > 1 ? ` (${h.reps} броска)` : ''}</div>`;
         if (canActiveDefend(t))
           html += `<div class="dim">У цели есть активная защита: повторный бросок d20 ${sgn(sum(activeMods(t, a)))}</div>`;
@@ -304,9 +318,9 @@ export function showTip(e, p) {
         html = `Поменяться местами с ${esc(t.name)} · 1 ОД`;
       } else if (a.kind === 'bandage') {
         const pts = a.pts || 3,
-          rm = Math.min(pts, t.bleed),
-          cl = Math.min(pts - rm, openWounds(t).length);
-        html = `<b>Перевязка</b> → ${t === u ? 'себя' : esc(t.name)} · 1 бинт<div class="m">стаков кровотечения ${t.bleed}, открытых ран ${openWounds(t).length}</div><div class="m">снимет стаков ${rm}${cl ? `, закроет ран ${cl}` : ''}</div>`;
+          ow = openWounds(t).length,
+          cl = Math.min(pts, ow);
+        html = `<b>Перевязка</b> → ${t === u ? 'себя' : esc(t.name)} · 1 бинт<div class="m">открытых ран ${ow}${t.bleed ? `, кровотечение (тяжесть ${t.bleed})` : ', не кровоточит'}</div><div class="m">3 пункта: закроет ран ${cl}${t.bleedX && cl < pts ? ', уймёт особое кровотечение' : ''}</div>`;
       }
     }
     tip.innerHTML = html;

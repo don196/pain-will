@@ -91,7 +91,7 @@ export const SNARE_PART = {
   },
   head: {
     l: 'голова',
-    v: -2,
+    v: -4,
   },
 };
 
@@ -116,7 +116,7 @@ export async function chooseSnarePart(u: Unit, a, t) {
         SNARE_PART[k].l[0].toUpperCase() +
         SNARE_PART[k].l.slice(1) +
         (SNARE_PART[k].v ? ` (${SNARE_PART[k].v})` : ' (без штрафа)'),
-      sub: `успех ${pct(snareP(u, a, t, SNARE_PART[k].v))}${k === 'head' ? ' · Кашель и 2 урона в конце каждого хода цели' : k === 'leg' ? ' · обездвиживание' : k === 'armR' ? ' · обездвиживание, оружием в этой руке не ударить' : ' · обездвиживание, щитом не закрыться'}`,
+      sub: `успех ${pct(snareP(u, a, t, SNARE_PART[k].v))}${k === 'head' ? ' · обездвиживание, Кашель и 1 Боль сквозь броню в конце каждого хода цели' : k === 'leg' ? ' · обездвиживание' : k === 'armR' ? ' · обездвиживание, оружием в этой руке не ударить' : ' · обездвиживание, щитом не закрыться'}`,
     }));
   const v = await view.askChoice(
     'Силок: куда целиться',

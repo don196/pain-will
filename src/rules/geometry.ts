@@ -1,8 +1,9 @@
+import { SET } from '../settings';
 import type { Opts, Unit } from '../types';
 import { LASSO_R, lassoTarget } from './lasso';
 import { hiddenFrom } from './light';
 import { hAt, hNearOk, hasHeights, heightClear, stepCost } from './height';
-import { hasTerrain, isTerrOpaque, isTerrSolid, slowAt } from './terrain';
+import { coverAt, hasTerrain, isTerrOpaque, isTerrSolid, slowAt } from './terrain';
 import { speedOf } from './stats';
 import { S, hostiles } from '../state';
 import { cheb, hd, hexLine, key, nbrDirs, sz, unkey } from '../util';
@@ -33,7 +34,8 @@ export const blocksLight = (x, y) => {
   const k = key(x, y);
   if (S.walls.has(k)) return true;
   const d = S.doors[k];
-  return !!(d && !d.open) || isTerrOpaque(x, y);
+  /* шкаф и укрытия (стол, кровать, скамья) закрывают свет — свод 2.4 */
+  return !!(d && !d.open) || isTerrOpaque(x, y) || coverAt(x, y);
 };
 
 /* Крупный боец на гексагонах — треугольник из трёх гексов вершиной вниз: опорный, правый сосед и общий нижний сосед. */
@@ -145,7 +147,7 @@ function bfsH(u: Unit, opt: Opts = {}) {
         k = key(nx, ny);
       if (done.has(k) || !footFree(u, nx, ny)) continue;
       if (leash && hd(nx, ny, leash.x, leash.y) > LASSO_R) continue;
-      const c = stepCost(x, y, nx, ny, climb) + slowAt(nx, ny);
+      const c = stepCost(x, y, nx, ny, climb) + slowAt(nx, ny, climb);
       if (!isFinite(c)) continue;
       const nd = cur.d + c;
       if (opt.max != null && nd > opt.max) continue;
@@ -209,6 +211,41 @@ export function hexLosCells(p, q, a, b, att: Unit, opt) {
   }
   return last;
 }
+/* Свод 2.4, стрельба через плечо: на линии ровно один стоящий союзник стрелка, остальное свободно.
+   free — сколько свободных гексов от стрелка до союзника (0 — вплотную). Лежащие союзники выстрел не перекрывают.
+   null — так выстрелить нельзя; ally null — линия свободна (союзники на ней лежат). */
+export function allyScreen(a, b, att: Unit) {
+  let best = null;
+  for (const p of cellsOf(a))
+    for (const q of cellsOf(b))
+      for (const e of [1e-6, -1e-6]) {
+        const line = hexLine(p, q, e);
+        if (hasHeights() && !heightClear(p, q, line)) continue;
+        let ally = null,
+          free = 0,
+          bad = false;
+        for (let i = 0; i < line.length && !bad; i++) {
+          const c = line[i];
+          if (inFoot(a, c.x, c.y) || inFoot(b, c.x, c.y)) continue;
+          if (blocksShot(c.x, c.y)) bad = true;
+          else {
+            const o = unitAt(c.x, c.y);
+            if (!o || o === att) continue;
+            if (o.side !== att.side) bad = true;
+            else if (o.prone) continue;
+            else if (ally && ally !== o) bad = true;
+            else if (!ally) {
+              ally = o;
+              free = i;
+            }
+          }
+        }
+        if (bad) continue;
+        if (!ally) return { ally: null, free: 0 };
+        if (!best || free < best.free) best = { ally, free };
+      }
+  return best;
+}
 export function los(a, b, att: Unit, opt: Opts = {}) {
   let last = {
     ok: false,
@@ -237,6 +274,8 @@ export function reachClear(from, t, u: Unit) {
       m2 = hexLine(from, t, -1e-6)[0],
       occ_ = c => {
         const o = unitAt(c.x, c.y);
+        /* свод 2.4: длинным оружием можно бить через ОДНОГО соседнего союзника */
+        if (o && SET.allyFire && u && o.side === u.side) return false;
         return !!o && o !== u && o !== t;
       };
     if (occ_(m1) && occ_(m2)) return false;

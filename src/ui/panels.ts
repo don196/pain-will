@@ -41,7 +41,7 @@ import { endTurnUI, onAction, run } from './input';
 import { canRedo, canUndo, redo, remember, reroll, undo } from './history';
 import { FORCED } from '../rng';
 import { applyDamage } from '../rules/damage';
-import { addWound } from '../rules/wounds';
+import { addWound, syncBleed } from '../rules/wounds';
 import { armorTxt, downTxt, odPipsHTML, openLegend, painSegs, v2CardLines } from './status';
 import { $, esc, fmtN, pct, sgn, sum, sz } from '../util';
 export function actState(u: Unit, id) {
@@ -183,7 +183,7 @@ export function actGroup(id, a) {
   if (a.kind === 'push') return 1;
   if (a.kind === 'unlasso') return 3;
   if (
-    ['throw', 'bandage', 'trap', 'wswap', 'revive', 'objectStrike', 'objectPush'].includes(a.kind) ||
+    ['throw', 'bandage', 'cauterHeal', 'trap', 'wswap', 'revive', 'objectStrike', 'objectPush'].includes(a.kind) ||
     id === 'reload' ||
     id === 'coverFull'
   )
@@ -828,7 +828,8 @@ export function renderCard() {
     return `<span class="wln d${Math.min(3, w.deg)}"><b>${AREA_RU[ar]}</b> — ${WDEG_RU[w.deg]} рана, ${w.open ? 'открыта' : 'закрыта'}${wp ? ' · ' + wp : ''}</span>`;
   });
   const tags = [];
-  if (u.bleed) tags.push(`<span class="tag blood">Кровотечение ×${u.bleed}: 1 Боль в начале хода</span>`);
+  if (u.bleed)
+    tags.push(`<span class="tag blood">Кровотечение (тяжесть ${u.bleed}): +1 Боль в конце своего хода</span>`);
   if (u.torch) tags.push('<span class="tag fire">Факел в руке</span>');
   if (u.prone && !u.down) tags.push('<span class="tag">Сбит с ног</span>');
   let html = `<div class="sh-hd"><div class="gl ${u.side}">${esc(u.glyph)}</div><div><div class="nm">${esc(u.name)}</div><div class="sd">${sub}</div></div>
@@ -873,7 +874,7 @@ export function renderCard() {
   else
     html += `<div class="willrow">Воля <b style="font-family:var(--mono)">${u.will}</b>
     <button type="button" data-w="-5">−5</button><button type="button" data-w="-1">−1</button><button type="button" data-w="1">+1</button><button type="button" data-w="5">+5</button></div>
-    <div class="willrow">${disSel}</div>${u.disorder && !f ? '<div class="help">Порог не достигнут: слабая форма с −10, сильная с −20.</div>' : ''}`;
+    <div class="willrow">${disSel}</div>${u.disorder && !f ? '<div class="help">Порог не достигнут: лёгкая форма — Воля ниже 20, серьёзная — ниже 10 (шкала 0–35).</div>' : ''}`;
   html += `<div class="willrow"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="torchChk" ${u.torch ? 'checked' : ''}> несёт горящий факел</label></div>`;
   if (!S.editor)
     html += `<div class="gmt"><div class="gml">Вмешаться в бой</div>
@@ -974,15 +975,20 @@ export function gmAct(u: Unit, k) {
   else if (k === 'unst') addSt(u, 'unst', 1, 'ведущий');
   else if (k === 'disor') addSt(u, 'disor', 1, 'ведущий');
   else if (k === 'bleed') {
-    u.bleed = (u.bleed || 0) + 1;
-    ev(`🎲 Ведущий: ${who} кровотечение +1, стаков ${u.bleed}`);
+    u.bleedX = (u.bleedX || 0) + 1;
+    syncBleed(u);
+    ev(
+      `🎲 Ведущий: ${who} кровотечение сильнее (+1 к тяжести)${u.bleed ? `, тяжесть ${u.bleed}` : ', пока ниже 2 — не кровоточит'}`,
+    );
   } else if (k === 'stun') {
     u.stunned = true;
     ev(`🎲 Ведущий: ${who} оглушён — пропустит ход`);
   } else if (k === 'clear') {
     u.st = {};
     u.prone = false;
-    u.bleed = 0;
+    u.bleedX = 0;
+    for (const w of Object.values(u.wounds || {}) as any[]) w.open = false;
+    syncBleed(u);
     u.stunned = false;
     u.effects = [];
     ev(`🎲 Ведущий: с ${who} сняты состояния`);

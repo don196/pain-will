@@ -122,7 +122,7 @@ export interface Scenario {
   hmap?: string[];
   /* Слои 4.5: высоты и окружение прямоугольниками и клетками; последний слой побеждает. */
   heightLayers?: { level: number; rect?: number[]; cells?: number[][] }[];
-  terrainLayers?: { type: string; rect?: number[]; cells?: number[][]; depth?: number }[];
+  terrainLayers?: { type: string; rect?: number[]; cells?: number[][]; depth?: number; dir?: number[] }[];
   pool?: string[];
   heroOrder?: string[];
 }

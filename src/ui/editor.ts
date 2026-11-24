@@ -1,5 +1,5 @@
 import { TERRAIN, TERRAIN_TOOLS } from '../data/terrain';
-import { placeTerr } from '../rules/terrain';
+import { dropTerr, placeTerr } from '../rules/terrain';
 import { T } from '../data/fighters';
 import { footFree, inFoot, torchAt, unitAt } from '../rules/geometry';
 import { H_MAX, H_MIN } from '../rules/height';
@@ -89,13 +89,13 @@ export function editorClick(x, y) {
     S.walls.delete(k);
     delete S.doors[k];
     delete S.bars[k];
-    if (S.terrain) delete S.terrain[k];
+    dropTerr(x, y);
     S.torches = S.torches.filter(t => !(t.x === x && t.y === y));
   };
   /* окружение 4.5: сплошной предмет не ставится под бойца */
   if (S.etool.startsWith('t:') || S.etool === 'terase') {
     if (S.etool === 'terase') {
-      if (S.terrain) delete S.terrain[k];
+      dropTerr(x, y);
     } else {
       const type = S.etool.slice(2),
         def = TERRAIN[type];

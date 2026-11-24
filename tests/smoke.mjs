@@ -42,11 +42,15 @@ try {
       // Хельга: на пороге → без сознания → шаг к смерти → перевязка и «Привести в чувство» через интерфейс.
       const edge = await page.evaluate(() => {
         const h = P.S.units.find(u => u.tpl === 'helga'); h.od = 3; P.applyDamage(h, 99, null);
-        return { edge: P.onEdge(h), prone: h.prone, od: h.od, fire: P.actState(h, 'firebolt2').ok, move: P.okAct(h, 'move') };
+        const r = { edge: P.onEdge(h), prone: h.prone, od0: h.od };
+        /* следующий свой ход — последний: все ОД, ползти и голосовая магия, огонь руками нельзя */
+        h.od = 3; h._lastTurn = true;
+        Object.assign(r, { fire: P.okAct(h, 'firebolt2'), voice: P.okAct(h, 'curseWeak'), move: P.okAct(h, 'move') });
+        return r;
       });
-      ok(edge.edge && edge.prone && edge.od <= 1 && !edge.fire && edge.move, 'на пороге: лежит, 1 ОД, ползти можно, колдовать нельзя', JSON.stringify(edge));
-      const ko = await page.evaluate(() => { const h = P.S.units.find(u => u.tpl === 'helga'); h.bleed = 2; P.applyDamage(h, 1, null); P.koTick(h); return { down: h.down, ko: h.ko, steps: h.deathSteps, dead: !!h.dead }; });
-      ok(ko.down && ko.ko && ko.steps === 1 && !ko.dead, 'новая Боль — без сознания, кровотечение даёт шаг к смерти', JSON.stringify(ko));
+      ok(edge.edge && edge.prone && edge.od0 === 0 && !edge.fire && edge.voice && edge.move, 'на пороге (4.5): ход потерян, следующий — последний: ползти и голос, руками нельзя', JSON.stringify(edge));
+      const ko = await page.evaluate(() => { const h = P.S.units.find(u => u.tpl === 'helga'); h.wounds = { armL: { deg: 2, open: true, age: 0 } }; P.syncBleed(h); P.applyDamage(h, 1, null); P.koTick(h); return { down: h.down, ko: h.ko, steps: h.deathSteps, dead: !!h.dead, bleed: h.bleed }; });
+      ok(ko.down && ko.ko && ko.steps === 1 && !ko.dead && ko.bleed === 2, 'новая Боль — без сознания; серьёзная открытая рана кровоточит — шаг к смерти', JSON.stringify(ko));
       await page.evaluate(async () => {
         P.S.phase = 'pc'; P.S.busy = false; const h = P.S.units.find(u => u.tpl === 'helga'), w = P.S.units.find(u => u.tpl === 'walter');
         for (const [dx, dy] of P.nbrDirs(h.x, h.y)) if (P.inB(h.x + dx, h.y + dy) && P.footFree(w, h.x + dx, h.y + dy)) { w.x = h.x + dx; w.y = h.y + dy; break; }
@@ -135,7 +139,7 @@ try {
 
       // Экспедиция: победа → привал (Боль −2, очнулся) → следующий бой с теми же ранами; кровь на полу; звук не ломает страницу.
       const ex = await page.evaluate(async () => {
-        P.EXP.rest = { mode: 'A', n: 2 };
+        P.EXP.rest = { mode: 'A' };
         P.startExpedition(['dummies', 'heights']);
         const [k, h] = P.S.units.filter(u => u.side === 'pc');
         k.hp = k.maxHp - 5; k.wounds = { arm: { deg: 1 } }; P.bloodAt(k, 2);
@@ -146,12 +150,12 @@ try {
         const btn = !!document.querySelector('#bnNext'), kp = P.painOf(k);
         P.nextStage();
         const k2 = P.S.units.find(u => u.tpl === 'conrad'), h2 = P.S.units.find(u => u.tpl === 'helga');
-        const r = { scn: P.S.scn, btn, blood, k: kp - P.painOf(k2), w: Object.keys(k2.wounds).length, h: P.painOf(h2), hdown: h2.down, badge: /Экспедиция 2\/2/.test(document.querySelector('#rnd').textContent) };
+        const r = { scn: P.S.scn, btn, blood, closed: !k2.wounds.arm.open, k: kp - P.painOf(k2), w: Object.keys(k2.wounds).length, h: P.painOf(h2), hdown: h2.down, badge: /Экспедиция 2\/2/.test(document.querySelector('#rnd').textContent) };
         P.stopExpedition();
         P.setSound(true); P.sfx('hit'); P.sfx('crit'); P.setSound(false);
         return r;
       });
-      ok(ex.scn === 'heights' && ex.btn && ex.blood > 0 && ex.k === 2 && ex.w === 1 && ex.h === 4 && !ex.hdown && ex.badge, 'экспедиция: привал, перенос ран и Боли; кровь на полу; звук', JSON.stringify(ex));
+      ok(ex.scn === 'heights' && ex.btn && ex.blood > 0 && ex.k === 3 && ex.w === 1 && ex.h === 3 && ex.closed && !ex.hdown && ex.badge, 'экспедиция: отдых по своду (половина Боли, перевязка, в чувство с помощью), перенос ран; кровь на полу; звук', JSON.stringify(ex));
 
       // Окружение 4.5: укрытие, вода, удар и толчок бочки, разлив масла и огонь, обрушение пола, обзор сверху.
       const tr = await page.evaluate(async () => {
@@ -185,18 +189,96 @@ try {
         for (const u of P.S.units) if (u !== h && (u.y === 6 || u.y === 5)) u.x = 1;
         h.x = 6; h.y = 6; const p0 = P.painOf(h);
         await P.walk(h, [[7, 6]]);
-        r.collapse = P.hAt(7, 6) === -2 && h.prone && P.painOf(h) - p0 === 2 && !P.terrAt(8, 5);
+        r.collapse = P.hAt(7, 6) === -1 && P.isStairs(7, 6) && h.prone && P.painOf(h) - p0 === 1 && !P.terrAt(8, 5);
         // обзор: сверху вниз виден, снизу через обрыв — нет
         P.loadScenario('stairwell');
         const top = P.S.units.find(u => u.side === 'en'), low = P.S.units.find(u => u.tpl === 'walter');
         for (const u of P.S.units) if (u !== top && u !== low) { u.x = 1; u.y = 1 + (u.id % 9); }
-        top.x = 12; top.y = 2; low.x = 12; low.y = 8;
-        r.downOk = P.los(top, low, top).ok; r.upBlocked = !P.los(low, top, low).ok;
+        /* обзор симметричен: с края площадки видно всё внизу и наоборот; из глубины площадки — нет */
+        top.x = 12; top.y = 5; low.x = 12; low.y = 8;
+        r.downOk = P.los(top, low, top).ok && P.los(low, top, low).ok;
+        top.y = 2;
+        r.upBlocked = !P.los(low, top, low).ok && !P.los(top, low, top).ok;
         // редактор: стол на клетку
         return r;
       });
       ok(tr.cover && tr.hidden && tr.deep && tr.noHeat && tr.broken && tr.oil && tr.fire && tr.pushed && tr.collapse && tr.downOk && tr.upBlocked,
         'окружение: укрытие, вода, бочки, масло и огонь, обрушение, обзор с высоты', JSON.stringify(tr));
+
+      // Свод 2.4: броня таблицей, натуральные 1 и 20, огонь через союзника, кровотечение, раны головы, Нагрев, Воля,
+      // повадки, прижигание, стул, шипы, спуск, двухгексовая мебель, горючий, догорание.
+      const sv = await page.evaluate(async () => {
+        const r = {};
+        P.SET.anim = 'fast';
+        r.armor = [P.armorCut(1, 4), P.armorCut(2, 3), P.armorCut(3, 1), P.armorCut(0, 2)].join(',');
+        P.loadScenario('dummies'); P.S.terrain = {};
+        const U = t => P.S.units.find(u => u.tpl === t);
+        const c = U('conrad'), h = U('helga'), w = U('walter'), d = P.S.units.find(u => u.tpl === 'dummy');
+        for (const u of P.S.units) if (![c, h, w, d].includes(u)) { u.x = 13; u.y = 1 + (u.id % 7); }
+        w.x = 2; w.y = 2; h.x = 3; h.y = 2; d.x = 8; d.y = 2; c.x = 7; c.y = 2; P.S.phase = 'pc';
+        // натуральная 1: промах и Неустойчивость атакующему
+        const d0 = P.painOf(d); P.FORCED.length = 0; P.FORCED.push(1);
+        await P.resolveAttack(c, P.A.csword, d); r.nat1 = P.painOf(d) === d0 && P.stOf(c, 'unst') === 1;
+        c.st = {};
+        // натуральная 20 повышает степень (защита цели — натуральная 1)
+        P.FORCED.push(20, 1, 1, 1);
+        await P.resolveAttack(c, P.A.csword, d);
+        const m = [...P.S.log].reverse().find(e => e.meta && e.meta.k === 'atk' && e.meta.r === 20);
+        r.nat20 = !!m && m.meta.t >= 2;
+        P.FORCED.length = 0;
+        // огонь через плечо: Хельга вплотную перед Вальтером, натуральная 2 — болт в неё
+        w.loaded = true; w.wield = 'xbow'; c.x = 1; c.y = 6;
+        r.canShoot = P.canTarget(w, P.A.hxbow, d);
+        const hp0 = P.painOf(h), dp = P.painOf(d); P.FORCED.push(2);
+        await P.resolveAttack(w, P.A.hxbow, d);
+        r.ff = P.painOf(h) > hp0 && P.painOf(d) === dp;
+        P.FORCED.length = 0;
+        // кровотечение по суммарной тяжести
+        c.wounds = { armL: { deg: 1, open: true, age: 0 } }; P.syncBleed(c); const b1 = c.bleed;
+        c.wounds.legL = { deg: 1, open: true, age: 0 }; P.syncBleed(c); r.bleed = b1 === 0 && c.bleed === 2;
+        // рана головы: серьёзная — −1 Харизма и −1 Интуиция
+        const i0 = P.stat(h, 'int'), ch0 = P.stat(h, 'cha'); h.wounds.head = { deg: 2, open: false, age: 0 };
+        r.head = P.stat(h, 'int') === i0 - 1 && P.stat(h, 'cha') === ch0 - 1; delete h.wounds.head;
+        // Нагрев: 3 стака — 1 Боль
+        const ph = P.painOf(d); P.addSt(d, 'heat', 3, 'тест'); r.heat = P.painOf(d) - ph === 1;
+        // Воля: 30 на старте, пороги 20 и 10, союзник без сознания −2, гибель — всего −5
+        r.will0 = h.will === 30;
+        P.applyDamage(c, 99, null); P.applyDamage(c, 99, null);
+        const wk = h.will; c.dead = true; P.witnessDown(c);
+        r.will = wk === 28 && h.will === 25;
+        h.will = 15; const f1 = P.disForm(h); h.will = 5; const f2 = P.disForm(h); h.will = 30;
+        r.willForm = f1 === 1 && f2 === 2;
+        // Выявление повадок: натуральная 20 — 3 метки
+        P.FORCED.push(20); P.doHabits(w, d); r.habits = P.getEff(d, 'spots').areas.length === 3; P.FORCED.length = 0;
+        // Прижигание: 1 Боль и закрытая рана
+        w.wounds = { armR: { deg: 1, open: true, age: 0 } }; P.syncBleed(w); h.od = 3; h.x = 3; h.y = 3; w.x = 3; w.y = 2;
+        const pw = P.painOf(w); await P.perform(h, 'cauterHeal', w);
+        r.cauter = !w.wounds.armR.open && P.painOf(w) - pw === 1;
+        // стул: вход ещё 1 ОД; спуск на 1 уровень без доплаты
+        P.placeTerr(5, 6, 'chair'); r.chair = P.slowAt(5, 6, 3) === 3;
+        P.S.hgt = { '5,7': 1 }; r.down = P.stepCost(5, 7, 5, 8, 3) === 1 && P.stepCost(5, 8, 5, 7, 3) === 4; P.S.hgt = {};
+        // кровать — два гекса, общая прочность
+        P.placeTerr(10, 6, 'bed'); const pt = P.terrAt(10, 6).part;
+        r.bed = !!pt && P.isTerrSolid(pt[0], pt[1]);
+        P.terrainDamage(pt[0], pt[1], 4, 'тест'); r.bedHp = P.terrAt(10, 6).hp === 6;
+        // горючий: огонь даёт ещё 2 Нагрева
+        const e2 = P.S.units.find(u => u.tpl === 'dummy' && u !== d); e2.x = 11; e2.y = 2; e2.st = {};
+        P.spreadLiquid(11, 2, 'oil'); r.oily = P.hasEff(e2, 'oily');
+        P.addSt(e2, 'heat', 1, 'огонь'); r.ignite = !P.hasEff(e2, 'oily') && (e2.down || P.painOf(e2) >= 1);
+        // огонь на полу гаснет через 3 раунда
+        P.placeTerr(12, 7, 'burning'); P.terrainRound(); P.terrainRound(); P.terrainRound(); r.burnOut = !P.terrAt(12, 7);
+        // шипы: два гекса за толчок — рана
+        P.loadScenario('dummies'); P.S.terrain = {};
+        const k2 = P.S.units.find(u => u.tpl === 'conrad'), t2 = P.S.units.find(u => u.tpl === 'dummy');
+        for (const u of P.S.units) if (u !== k2 && u !== t2) { u.x = 13; u.y = 1 + (u.id % 7); }
+        k2.x = 3; k2.y = 4; t2.x = 4; t2.y = 4; P.placeTerr(5, 4, 'spikesSteel'); P.placeTerr(6, 4, 'spikesSteel');
+        await P.shove(k2, t2, 2);
+        r.spikes = t2.down || Object.keys(t2.wounds).length === 1;
+        return r;
+      });
+      ok(sv.armor === '3,2,0,2' && sv.nat1 && sv.nat20 && sv.canShoot && sv.ff && sv.bleed && sv.head && sv.heat && sv.will0 && sv.will && sv.willForm && sv.habits && sv.cauter && sv.chair && sv.down && sv.bed && sv.bedHp && sv.oily && sv.ignite && sv.burnOut && sv.spikes,
+        'свод 2.4: броня, натуральные 1/20, огонь через союзника, кровь, голова, Нагрев, Воля, повадки, прижигание, окружение', JSON.stringify(sv));
+
 
     }
 

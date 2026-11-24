@@ -1,9 +1,10 @@
 /* Экспедиция: серия боёв подряд, герои переносят состояние из боя в бой.
-   Между боями — привал, его щедрость настраивается:
-   A «Короткий привал» (по умолчанию): Боль −N, потерявшие сознание приходят в себя, кровь останавливают;
-     раны, Воля, бинты и факелы — как есть;
-   B «Долгий отдых»: Боль сбрасывается, остальное как в A;
-   C «Без привала»: всё как есть, даже кровотечение и обмороки. */
+   Отдых по своду 2.4 (§5.1):
+   A «После боя» (по умолчанию): сразу снимается половина Боли (снятое округляется вверх: 5 → 2, 4 → 2, 1 → 0);
+     открытые раны перевязывают бинтами отряда; потерявший сознание приходит в себя только с помощью союзника
+     и только когда кровотечение остановлено;
+   B «После боя и передышка» (30 минут): то же, затем снимается вся оставшаяся Боль; раны и кровотечение передышка не лечит;
+   C «Без отдыха»: всё как есть. */
 import { SCN } from '../data/scenarios';
 import { log } from '../rules/log';
 import { limOf, painOf } from '../rules/pain';
@@ -13,7 +14,7 @@ import { startGame } from './game';
 import { closeModal, openModal } from './modals';
 import { HOOKS, render } from './panels';
 
-type Rest = { mode: 'A' | 'B' | 'C'; n: number };
+type Rest = { mode: 'A' | 'B' | 'C'; n?: number };
 export const EXP = {
   on: false,
   list: [] as string[],
@@ -33,6 +34,7 @@ const KEEP = [
   'deathSteps',
   'wounds',
   'bleed',
+  'bleedX',
   'will',
   'bandages',
   'torches',
@@ -58,32 +60,81 @@ const save = () => {
 };
 
 const REST_TXT = {
-  A: n =>
-    `Короткий привал: Боль −${n}, потерявшие сознание приходят в себя, кровь остановлена; раны, Воля, бинты и факелы — как есть`,
+  A: () => 'После боя: снята половина Боли, раны перевязаны бинтами отряда, потерявших сознание привели в чувство',
   B: () =>
-    'Долгий отдых: Боль сбрасывается, потерявшие сознание приходят в себя, кровь остановлена; раны, Воля, бинты и факелы — как есть',
-  C: () => 'Без привала: всё как есть, даже кровотечение и обмороки',
+    'После боя и передышка 30 минут: Боль снята вся, раны перевязаны бинтами отряда, потерявших сознание привели в чувство',
+  C: () => 'Без отдыха: всё как есть',
 };
-export const restText = (r: Rest = EXP.rest) => REST_TXT[r.mode](r.n);
+export const restText = (r: Rest = EXP.rest) => (REST_TXT[r.mode] || REST_TXT.A)();
 
-/* Привал над сохранённым состоянием героя. Возвращает строку для журнала. */
-export function applyRest(h, r: Rest) {
-  if (h.dead || r.mode === 'C') return '';
-  const p0 = painOf(h);
-  if (r.mode === 'B') h.hp = h.maxHp;
-  else h.hp = Math.min(h.maxHp, h.hp + Math.max(0, r.n));
-  h.bleed = 0;
-  let woke = false;
-  if (h.down) {
-    h.down = false;
-    h.ko = false;
-    woke = true;
-    /* очнувшийся — не за порогом: Боль не выше предела минус один */
-    const L = limOf(h);
-    if (painOf(h) >= L) h.hp = h.maxHp - (L - 1);
+const openW = h => Object.values(h.wounds || {}).filter((w: any) => w && w.open) as any[];
+const sev = h => (h.bleedX || 0) + openW(h).reduce((s, w) => s + w.deg, 0);
+
+/* Отдых отряда над сохранёнными состояниями героев. Возвращает заметки для журнала по имени. */
+export function restParty(party: any[], r: Rest) {
+  const notes = {};
+  const add = (h, t) => (notes[h.name] = (notes[h.name] ? notes[h.name] + ', ' : '') + t);
+  const alive = party.filter(h => !h.dead);
+  if (r.mode === 'C') return notes;
+  /* 1. сразу после боя — половина Боли, снятое округляется вверх */
+  for (const h of alive) {
+    const p = painOf(h),
+      off = Math.ceil(p / 2);
+    if (off) {
+      h.hp = Math.min(h.maxHp, Math.max(0, h.hp) + off);
+      add(h, `Боль −${off}`);
+    }
   }
-  const d = p0 - painOf(h);
-  return [d > 0 ? `Боль −${d}` : '', woke ? 'пришёл в себя' : ''].filter(Boolean).join(', ');
+  /* 2. перевязка бинтами отряда: сначала кровоточащие и без сознания, бинт закрывает до трёх открытых ран */
+  const need = alive
+    .filter(h => openW(h).length || h.bleedX)
+    .sort((a, b) => (b.down ? 9 : 0) + sev(b) - ((a.down ? 9 : 0) + sev(a)));
+  for (const h of need) {
+    const donor =
+      h.bandages > 0 ? h : alive.filter(o => o.bandages > 0 && !o.down).sort((a, b) => b.bandages - a.bandages)[0];
+    if (!donor) break;
+    donor.bandages--;
+    let pts = 3,
+      n = 0;
+    for (const w of openW(h).sort((a, b) => b.deg - a.deg)) {
+      if (pts <= 0) break;
+      w.open = false;
+      pts--;
+      n++;
+    }
+    if (pts > 0 && h.bleedX) h.bleedX = 0;
+    add(h, `перевязан${donor !== h ? ' (бинт ' + donor.name + ')' : ''}: закрыто ран ${n}`);
+  }
+  for (const h of alive) {
+    const s = sev(h);
+    h.bleed = s >= 2 ? s : 0;
+  }
+  /* 3. без сознания — приходит в себя только с помощью союзника в сознании и если кровь остановлена (5 минут) */
+  const helper = alive.find(h => !h.down);
+  for (const h of alive)
+    if (h.down && !h.dead) {
+      if (helper && !h.bleed) {
+        h.down = false;
+        h.ko = false;
+        h.deathSteps = 0;
+        const L = limOf(h);
+        if (painOf(h) >= L) h.hp = h.maxHp - (L - 1);
+        add(h, `приведён в чувство (${helper.name})`);
+      } else add(h, helper ? 'кровотечение не остановить — остаётся без сознания' : 'привести в чувство некому');
+    }
+  /* 4. передышка 30 минут — вся оставшаяся Боль */
+  if (r.mode === 'B')
+    for (const h of alive)
+      if (!h.down && painOf(h) > 0) {
+        h.hp = h.maxHp;
+        add(h, 'передышка: Боль снята вся');
+      }
+  return notes;
+}
+/* Совместимость: отдых одного героя (без бинтов отряда). */
+export function applyRest(h, r: Rest) {
+  const n = restParty([h], r);
+  return n[h.name] || '';
 }
 
 function heroState(u) {
@@ -150,15 +201,9 @@ export function nextStage() {
   if (!EXP.on || S.over !== 'pc') return;
   const heroes = S.units.filter(u => u.side === 'pc');
   EXP.party = heroes.map(heroState);
-  const notes = [];
-  for (const h of EXP.party) {
-    if (h.dead) {
-      if (!EXP.fallen.includes(h.name)) EXP.fallen.push(h.name);
-      continue;
-    }
-    const t = applyRest(h, EXP.rest);
-    if (t) notes.push(`${esc(h.name)}: ${t}`);
-  }
+  for (const h of EXP.party) if (h.dead && !EXP.fallen.includes(h.name)) EXP.fallen.push(h.name);
+  const nt = restParty(EXP.party, EXP.rest),
+    notes = Object.entries(nt).map(([k, v]) => `${esc(k)}: ${v}`);
   EXP.i++;
   startStage();
   log(
@@ -216,11 +261,11 @@ export function openExpedition() {
   openModal(
     `<h2>Экспедиция</h2><p class="dim">Несколько боёв подряд. Герои переходят из боя в бой со своей Болью, ранами, Волей и припасами; павшие не возвращаются. Между боями — привал.</p>
     <h3>Бои по порядку</h3><ol class="expl" id="expList"></ol><button type="button" id="expAdd">Добавить бой</button>
-    <h3>Привал между боями</h3>
-    <div class="radios" role="radiogroup" aria-label="Привал">
-      <label><input type="radio" name="rest" value="A"${r.mode === 'A' ? ' checked' : ''}> <b>Короткий привал</b> <span class="dim">— Боль −<input type="number" class="ni" id="restN" min="0" max="9" value="${r.n}" aria-label="Сколько Боли снимает привал">, потерявшие сознание приходят в себя, кровь остановлена; раны, Воля, бинты и факелы — как есть. По умолчанию</span></label>
-      <label><input type="radio" name="rest" value="B"${r.mode === 'B' ? ' checked' : ''}> <b>Долгий отдых</b> <span class="dim">— Боль сбрасывается, остальное как при коротком привале</span></label>
-      <label><input type="radio" name="rest" value="C"${r.mode === 'C' ? ' checked' : ''}> <b>Без привала</b> <span class="dim">— всё как есть, даже кровотечение и обмороки</span></label>
+    <h3>Отдых между боями (свод 2.4)</h3>
+    <div class="radios" role="radiogroup" aria-label="Отдых">
+      <label><input type="radio" name="rest" value="A"${r.mode === 'A' ? ' checked' : ''}> <b>Только после боя</b> <span class="dim">— снимается половина Боли (снятое вверх: 5 → 2, 4 → 2, 1 → 0); открытые раны перевязывают бинтами отряда; без сознания — приходит в себя с помощью союзника, если кровь остановлена. По умолчанию</span></label>
+      <label><input type="radio" name="rest" value="B"${r.mode === 'B' ? ' checked' : ''}> <b>После боя и передышка 30 минут</b> <span class="dim">— то же, затем снимается вся Боль; раны и кровотечение передышка не лечит</span></label>
+      <label><input type="radio" name="rest" value="C"${r.mode === 'C' ? ' checked' : ''}> <b>Без отдыха</b> <span class="dim">— всё как есть</span></label>
     </div>
     <div class="bbtn">${EXP.on ? '<button type="button" id="expStop">Прервать текущую</button>' : ''}<button type="button" class="primary" id="expGo">Начать экспедицию</button></div>`,
     () => {
@@ -231,10 +276,10 @@ export function openExpedition() {
       };
       const sync = () => {
         const m = (document.querySelector('input[name="rest"]:checked') as HTMLInputElement)?.value as Rest['mode'];
-        EXP.rest = { mode: m || 'A', n: Math.max(0, Math.min(9, +($('#restN') as HTMLInputElement).value || 0)) };
+        EXP.rest = { mode: m || 'A' };
         save();
       };
-      document.querySelectorAll('input[name="rest"],#restN').forEach(i => i.addEventListener('change', sync));
+      document.querySelectorAll('input[name="rest"]').forEach(i => i.addEventListener('change', sync));
       const st = $('#expStop');
       if (st)
         st.onclick = () => {

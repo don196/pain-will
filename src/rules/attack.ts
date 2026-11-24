@@ -1,8 +1,9 @@
-import { terrainStep } from './terrain';
+import { coverHit, terrainStep } from './terrain';
 import type { Action, Opts, Unit } from '../types';
 import { DIS, DISP, DIS_ICON } from '../data/disorders';
-import { canTarget } from './actions';
-import { addSt, cauterize, fall, interrupt, v2Counter, v2Defend, v2Extra, v2OnHit } from './combat';
+import { canTarget, screenFor } from './actions';
+import { SET } from '../settings';
+import { addSt, cauterize, fall, fallOnto, interrupt, v2Counter, v2Defend, v2Extra, v2OnHit } from './combat';
 import { hAt, hasHeights } from './height';
 import { applyDamage } from './damage';
 import { critWill, disForm, disOf, madSwap, oddRoll, sadFail } from './disorders';
@@ -11,7 +12,7 @@ import { lassoSnap } from './lasso';
 import { ev, log, show, sleep, uName } from './log';
 import { backlash, selfHateHit } from './magic';
 import { painAfterTxt, painInfo, painTxt, painWear, painWound } from './pain';
-import { ap3Degree, canActiveDefend, missThr, resist, spendReact, tryCover } from './reactions';
+import { ap3Degree, canActiveDefend, missThr, nat1Side, nat20Up, resist, spendReact, tryCover } from './reactions';
 import { actId, atkMods, hasEff, modsStr, stat } from './stats';
 import { AREAS, addWound } from './wounds';
 import { S, friends, hostiles } from '../state';
@@ -55,8 +56,16 @@ export async function resolveAttack(att: Unit, act: Action, target: Unit, opt: O
     total = r + M,
     reTxt = '';
   const th = missThr(att, act, def),
-    cf = act.magic && selfHateHit(att) && r === 1;
-  if (cf || (th.v && r <= th.v)) {
+    cf = act.magic && selfHateHit(att) && r === 1,
+    n1 = SET.natRolls && r === 1 && !cf;
+  /* стрельба через плечо союзника: натуральная 1 — по правилам натуральной 1; дальше опасный диапазон — в союзника */
+  const scr = !opt.area && !n1 && !cf ? screenFor(att, act, def) : null,
+    risk = scr && scr.ally ? 2 * (scr.free + 1) : 0;
+  if (risk && r <= risk && !scr.ally.down) {
+    await friendlyHit(att, act, def, scr, r, risk);
+    return;
+  }
+  if (cf || n1 || (th.v && r <= th.v)) {
     await show({
       t: 'strike',
       att,
@@ -69,7 +78,7 @@ export async function resolveAttack(att: Unit, act: Action, target: Unit, opt: O
       ranged: !!(act.ranged || act.magic),
     });
     log(
-      `<div class="lh">${uName(att)} → ${uName(def)} · ${act.name}${opt.free ? ' <span class="dim">вне очереди</span>' : ''}</div><div class="lr">натуральные d20 <b>${r}</b>${th.v ? ` · порог промаха <b>${th.v}</b> (${th.src})` : ''}</div><div class="lo"><span class="chip fail">${cf ? 'критический провал' : 'промах'}</span></div>`,
+      `<div class="lh">${uName(att)} → ${uName(def)} · ${act.name}${opt.free ? ' <span class="dim">вне очереди</span>' : ''}</div><div class="lr">натуральные d20 <b>${r}</b>${th.v ? ` · порог промаха <b>${th.v}</b> (${th.src})` : ''}${risk ? ` · через ${esc(scr.ally.name)}: опасно 1–${risk}` : ''}</div><div class="lo"><span class="chip fail">${cf ? 'критический провал' : n1 ? 'натуральная 1 — промах' : 'промах'}</span></div>`,
       'atk',
       { k: 'atk', att: att.id, def: def.id, act: act.name, dmg: 0, t: 0, r, total: r, vs: pas, miss: true },
     );
@@ -82,6 +91,9 @@ export async function resolveAttack(att: Unit, act: Action, target: Unit, opt: O
     };
     if (S.stat) S.stat.thrMiss = (S.stat.thrMiss || 0) + 1;
     if (cf) backlash(att, act);
+    if (n1) nat1Side(att, act);
+    /* промах из-за укрытия (верхние 2 пункта порога): снаряд приходится в само укрытие */
+    if (!cf && !n1 && act.ranged && th.v && r > th.v - 2 && /укрытие/.test(th.src)) coverHit(att, act, def);
     return;
   }
   let defVal = pas,
@@ -129,6 +141,7 @@ export async function resolveAttack(att: Unit, act: Action, target: Unit, opt: O
           c: 'fail',
         }
     : ap3Degree(diff);
+  if (SET.natRolls && r === 20 && !act.lasso && !(v2def && v2def.ok)) deg = nat20Up(deg);
   if (v2def && v2def.ok)
     deg = {
       t: 0,
@@ -283,6 +296,23 @@ export async function resolveAttack(att: Unit, act: Action, target: Unit, opt: O
   if (S.over) return;
   await sleep(120);
 }
+/* Выстрел через плечо попал в союзника: обычная степень, без проверки Стойкости и без активной защиты. */
+async function friendlyHit(att: Unit, act: Action, def: Unit, scr, r, risk) {
+  const al = scr.ally,
+    p = painInfo(att, act, al, 1, {}),
+    dmg = p.net;
+  await show({ t: 'strike', att, def: al, act, total: r, vs: 0, deg: { t: 1, c: 'ok' }, hit: true, ranged: true });
+  log(
+    `<div class="lh">${uName(att)} → ${uName(def)} · ${act.name}</div><div class="lr">натуральные d20 <b>${r}</b> · через ${uName(al)} (${scr.free ? scr.free + ' своб. гекс.' : 'вплотную'}): опасно 1–${risk}</div><div class="lo"><span class="chip fail">попал в своего</span>${dmg > 0 ? `<span class="chip pain">+${dmg} Боли</span>` : '<span class="chip minor">0 Боли</span>'}</div><div class="ld">${painTxt(p, 1)} · ${painAfterTxt(al, dmg)}</div>`,
+    'atk',
+    { k: 'atk', att: att.id, def: al.id, act: act.name, dmg, t: 1, r, total: r, vs: 0, ff: true },
+  );
+  view.fxLine(att, al, act.fx || 'bolt');
+  if (S.stat) S.stat.ffire = (S.stat.ffire || 0) + 1;
+  S.lastAtk = { hit: true, dmg, def: al.id };
+  painWound(att, act, al, { t: 1 }, p);
+  applyDamage(al, dmg, att);
+}
 export function knockPlan(att: Unit, def: Unit) {
   if (sz(def) > 1)
     return {
@@ -330,6 +360,13 @@ export function knockPlan(att: Unit, def: Unit) {
       what: 'уступ',
     };
   const o = unitAt(nx, ny);
+  /* свод 2.4: с уступа — на другого бойца: оба падают с высоты на 1 меньше */
+  if (o && dh <= -2 && sz(o) === 1)
+    return {
+      to: { x: nx, y: ny },
+      fall: -dh,
+      onto: o,
+    };
   if (o)
     return {
       collide: true,
@@ -351,6 +388,11 @@ export function applyKnock(def: Unit, kb) {
     return;
   }
   if (kb.to) {
+    if (kb.onto) {
+      fallOnto(def, kb);
+      interrupt(def, 'отброшен');
+      return;
+    }
     def.x = kb.to.x;
     def.y = kb.to.y;
     ev(`Отбрасывание: ${uName(def)} сдвигается на 1 клетку`);
