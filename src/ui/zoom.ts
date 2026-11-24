@@ -2,6 +2,7 @@ import { S, selUnit } from '../state';
 import { $ } from '../util';
 import { cellsOf } from '../rules/geometry';
 import { boardH, boardW, tokPos } from './board';
+import { phoneH } from './mode';
 
 /* Масштаб и сдвиг поля. Телефон: двумя пальцами — масштаб, одним — сдвиг. Компьютер: колесо — масштаб
    вокруг курсора, перетаскивание мышью — сдвиг. Короткое нажатие остаётся нажатием на клетку. */
@@ -61,7 +62,7 @@ export function zoomReset(fit = false, keep = false, closer = false) {
   const vw = w.clientWidth,
     vh = w.clientHeight,
     fitK = Math.min(vw / boardW(), vh / boardH(), isPhone() ? 9 : 1);
-  if (fit || !isPhone() || (!closer && fitK >= 0.75)) {
+  if (fit || !isPhone() || (!closer && (fitK >= 0.75 || phoneH()))) {
     Z.fit = true;
     Z.k = fitK;
     Z.x = (vw - boardW() * Z.k) / 2;
