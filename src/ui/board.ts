@@ -31,6 +31,7 @@ import { limOf, onEdge, painOf } from '../rules/pain';
 import { sfx, syncDrone } from './sound';
 import { drawAllStairsFlat, drawHeightEdges, drawTerrainFlat, drawTerrainObj, floorTone } from './terrain-draw';
 import { $, REDUCED, cheb, el, esc, hash, hd, key, pct, sz, unkey } from '../util';
+import { phoneH } from './mode';
 export let CELL = 46;
 export function appendLog(e) {
   const box = $('#log');
@@ -89,10 +90,23 @@ export function cellOrder() {
   }
   return ORD;
 }
-/* Центр верхней грани клетки: поднятая клетка рисуется выше на LVL за уровень. */
-export const LVL = () => CELL * 0.34;
-/* Вид высот: 'flat' — как в 4.5, верх площадки на своём гексе; 'raised' — площадки приподняты. */
-export const RAISED = () => UI.hview === 'raised';
+/* Центр верхней грани клетки: поднятая клетка рисуется выше на LVL за уровень (вариант А макета 24.11:
+   уступы со стенкой, полоса кладки на уровень, тень, кромка по перепаду, метка уровня). */
+export const LVL = () => CELL * 0.42;
+/* Площадки всегда приподняты; плоский вид 4.5 больше не включается. */
+export const RAISED = () => true;
+/* Самый высокий уровень на поле — под него нужен запас сверху, чтобы площадки не обрезались. */
+let HMX = 0,
+  HMXK = '';
+export function maxLevel() {
+  const k = hgtSig();
+  if (k !== HMXK) {
+    HMXK = k;
+    HMX = Math.max(0, ...Object.values((S && S.hgt) || {}).map(Number));
+  }
+  return HMX;
+}
+const extraTop = () => Math.max(0, maxLevel() * 0.42 - 0.8);
 export function hc(x, y) {
   const c = hc0(x, y);
   if (S && S.hgt && RAISED()) c.y -= Math.max(0, hAt(x, y)) * LVL();
@@ -170,14 +184,15 @@ export function flash(u: Unit) {
 }
 export function computeCell() {
   const wrap = $('#wrap');
-  const wide = window.innerWidth > 700 && wrap.clientHeight > 120;
+  /* поле вписывается и по ширине, и по высоте — при старте видно целиком (телефон тоже, макет 24.11) */
+  const wide = wrap.clientHeight > 120;
   const aw = wrap.clientWidth - 22,
     ah = wide ? wrap.clientHeight - 22 : 99999;
   const pw = S.w + 0.5,
     ph = ((S.h - 1) * SQ3) / 2 + 2 / SQ3;
   return Math.max(
     wide ? 30 : 34,
-    Math.min(78, Math.floor(Math.min(aw / (ROT ? ph : pw), ah / ((ROT ? pw : ph) * KY + 2.0)))),
+    Math.min(78, Math.floor(Math.min(aw / (ROT ? ph : pw), ah / ((ROT ? pw : ph) * KY + 2.0 + extraTop())))),
   );
 }
 /* Поворот: «авто» — на телефоне в портрете, если поле шире, чем выше. */
@@ -192,7 +207,7 @@ function fitWrapHeight() {
   const wrap = $('#wrap');
   if (!wrap) return;
   const iw = window.innerWidth;
-  if (iw <= 700 || iw > 1180) {
+  if (iw <= 700 || iw > 1180 || phoneH()) {
     wrap.style.height = '';
     return;
   }
@@ -256,7 +271,7 @@ export function sizeCanvas(c) {
   return g;
 }
 export const KY = 0.62,
-  TOPM = () => CELL * 1.05;
+  TOPM = () => CELL * (1.05 + extraTop());
 export const floorAt = (x, y) => inB(x, y) && !S.walls.has(key(x, y));
 
 /* Срез стен: стена, за которой может кто-то стоять, рисуется низкой, остальные — в полный рост. */
@@ -272,24 +287,61 @@ export function wallH(x, y) {
   }
   return base;
 }
-/* Поднятая клетка: призма от пола до своего уровня, светлее с высотой; лестница — ступени, уровень подписан. */
+/* Поднятая клетка: призма от пола до своего уровня. Верх того же тона, что пол (яркость — только свет),
+   на видимых стенках — полоса кладки на каждый уровень, по краю — кромка по перепаду:
+   пунктир — подъём на 1 за лишнее ОД, толстая — 2 уровня и больше, пешком не пройти; у лестницы — тонкая. */
 export function drawRaised(g, x, y) {
   const lv = hAt(x, y),
     c0 = hc0(x, y),
     h = hash(x, y),
-    v = (64 + h * 16 + lv * 7) | 0,
-    cs = CELL;
+    v = (58 + h * 20) | 0,
+    cs = CELL,
+    L = LVL();
   const pr = prism(
     g,
     c0,
-    lv * LVL(),
-    `rgb(${v + 2},${v + 8},${v + 18})`,
-    `rgb(${v - 22},${v - 20},${v - 12})`,
-    `rgb(${v - 34},${v - 32},${v - 24})`,
+    lv * L,
+    `rgb(${v - 10},${v - 4},${v + 6})`,
+    `rgb(${v - 26},${v - 22},${v - 12})`,
+    `rgb(${v - 36},${v - 32},${v - 22})`,
   );
+  const p = pr.p,
+    q = pr.q,
+    cy0 = p.reduce((a, b) => a + b[1], 0) / 6;
+  /* видимые стенки: только те, что смотрят вниз по экрану (вертикальные рёбра пропускаем) */
+  const vis = [0, 1, 2, 3, 4, 5].filter(i => (p[i][1] + p[(i + 1) % 6][1]) / 2 > cy0 + 0.5);
+  g.lineCap = 'butt';
+  g.strokeStyle = 'rgba(6,7,9,.85)';
+  g.lineWidth = Math.max(1.5, cs * 0.035);
+  g.beginPath();
+  for (const i of vis)
+    for (let k = 1; k < lv; k++) {
+      const j = (i + 1) % 6;
+      g.moveTo(p[i][0], p[i][1] - k * L);
+      g.lineTo(p[j][0], p[j][1] - k * L);
+    }
+  g.stroke();
+  g.strokeStyle = 'rgba(216,200,166,.28)';
+  g.lineWidth = 1;
+  g.beginPath();
+  for (const i of vis) {
+    const j = (i + 1) % 6;
+    g.moveTo(q[i][0], q[i][1] + 1.5);
+    g.lineTo(q[j][0], q[j][1] + 1.5);
+  }
+  g.stroke();
   const c = hc(x, y);
-  /* кромка уступа: светлая линия по краю, за которым ниже */
-  const q = pr.q,
+  hexPath(g, c.x, c.y - cs * 0.02, 0.8);
+  g.fillStyle = 'rgba(255,240,210,.04)';
+  g.fill();
+  if (isStairs(x, y)) drawLadder(g, x, y, lv * L);
+  drawRims(g, x, y, q);
+  return pr;
+}
+/* Кромки верхней грани по перепаду с соседями. */
+export function drawRims(g, x, y, q) {
+  const cs = CELL,
+    lv = hAt(x, y),
     o = y & 1,
     EDGE = [
       [0, 1, x + o, y - 1],
@@ -299,31 +351,128 @@ export function drawRaised(g, x, y) {
       [4, 5, x - 1, y],
       [5, 0, x - 1 + o, y - 1],
     ];
-  g.strokeStyle = 'rgba(240,226,190,.38)';
-  g.lineWidth = Math.max(1.2, cs * 0.03);
-  g.beginPath();
-  for (const [i, j, nx, ny] of EDGE)
-    if (floorAt(nx, ny) && hAt(nx, ny) < lv) {
+  g.save();
+  g.lineCap = 'round';
+  for (const [i, j, nx, ny] of EDGE) {
+    if (!floorAt(nx, ny)) continue;
+    const d = lv - hAt(nx, ny);
+    if (d <= 0) continue;
+    const seg = () => {
+      g.beginPath();
       g.moveTo(q[i][0], q[i][1]);
       g.lineTo(q[j][0], q[j][1]);
+    };
+    g.setLineDash([]);
+    if (isStairs(x, y) || isStairs(nx, ny)) {
+      seg();
+      g.strokeStyle = 'rgba(232,220,192,.55)';
+      g.lineWidth = 1.4;
+      g.stroke();
+    } else if (d >= 2) {
+      seg();
+      g.strokeStyle = 'rgba(10,11,13,.95)';
+      g.lineWidth = Math.max(4, cs * 0.085);
+      g.stroke();
+      g.strokeStyle = '#f2e6c9';
+      g.lineWidth = Math.max(2, cs * 0.04);
+      g.stroke();
+    } else {
+      seg();
+      g.setLineDash([Math.max(3, cs * 0.09), Math.max(2.5, cs * 0.07)]);
+      g.strokeStyle = 'rgba(232,220,192,.8)';
+      g.lineWidth = 1.6;
+      g.stroke();
     }
-  g.stroke();
-  hexPath(g, c.x, c.y - cs * 0.02, 0.8);
-  g.fillStyle = 'rgba(255,240,210,.045)';
-  g.fill();
-  if (isStairs(x, y)) {
-    g.strokeStyle = 'rgba(10,12,16,.55)';
-    g.lineWidth = Math.max(1.5, cs * 0.04);
-    g.beginPath();
-    for (const f of [-0.22, 0, 0.22]) {
-      g.moveTo(c.x - cs * 0.3, c.y + f * cs * KY);
-      g.lineTo(c.x + cs * 0.3, c.y + f * cs * KY);
-    }
-    g.stroke();
   }
-  return pr;
+  g.restore();
 }
-/* Лестница на уровне 0 — только ступени на полу. */
+/* Лестница: две тетивы и перекладины от низкой стороны к высокой. Нет соседа выше — косые ступени. */
+export function drawLadder(g, x, y, lift = 0) {
+  const lv = hAt(x, y),
+    cs = CELL,
+    c = hc0(x, y),
+    o = y & 1;
+  const EDGE = [
+    [0, 1, x + o, y - 1],
+    [1, 2, x + 1, y],
+    [2, 3, x + o, y + 1],
+    [3, 4, x - 1 + o, y + 1],
+    [4, 5, x - 1, y],
+    [5, 0, x - 1 + o, y - 1],
+  ];
+  let best = null;
+  for (const e of EDGE) {
+    const [, , nx, ny] = e;
+    if (floorAt(nx, ny) && hAt(nx, ny) > lv && (!best || hAt(nx, ny) > hAt(best[2], best[3]))) best = e;
+  }
+  if (!best) {
+    drawFlatStairs(g, x, y);
+    return;
+  }
+  const a = hexPts(c.x, c.y - lift, 0.62),
+    [i, j] = best,
+    i2 = (i + 3) % 6,
+    j2 = (j + 3) % 6;
+  const B = [(a[i][0] + a[j][0]) / 2, (a[i][1] + a[j][1]) / 2],
+    A0 = [(a[i2][0] + a[j2][0]) / 2, (a[i2][1] + a[j2][1]) / 2];
+  /* перпендикуляр в плоскости поля, перенесённый на экран со сжатием */
+  const sx = B[0] - A0[0],
+    sy = B[1] - A0[1],
+    mlen = Math.hypot(sx, sy / KY) || 1,
+    w = cs * 0.17,
+    px = ((-sy / KY) * w) / mlen,
+    py = (sx * KY * w) / mlen;
+  g.save();
+  g.lineCap = 'round';
+  g.strokeStyle = '#d9b77a';
+  g.lineWidth = Math.max(2, cs * 0.05);
+  g.beginPath();
+  for (const s of [-1, 1]) {
+    g.moveTo(A0[0] + px * s, A0[1] + py * s);
+    g.lineTo(B[0] + px * s, B[1] + py * s);
+  }
+  g.stroke();
+  g.lineWidth = Math.max(1.5, cs * 0.04);
+  g.beginPath();
+  for (const t of [0.15, 0.38, 0.62, 0.85]) {
+    const mx = A0[0] + sx * t,
+      my = A0[1] + sy * t;
+    g.moveTo(mx - px, my - py);
+    g.lineTo(mx + px, my + py);
+  }
+  g.stroke();
+  g.restore();
+}
+/* Тень от уступов на нижний пол: вниз-вправо, длина по высоте. Рисуется одной мягкой тенью
+   (сама фигура уводится за край холста, остаётся только её размытая тень). */
+export function drawLedgeShadows(g) {
+  const cs = CELL,
+    L = LVL(),
+    OFF = 20000,
+    dpr = g.getTransform ? g.getTransform().a : 1;
+  g.save();
+  g.shadowColor = 'rgba(0,0,0,.55)';
+  g.shadowBlur = cs * 0.14 * dpr;
+  g.shadowOffsetX = OFF * dpr;
+  g.beginPath();
+  for (let y = 0; y < S.h; y++)
+    for (let x = 0; x < S.w; x++) {
+      const lv = hAt(x, y);
+      if (lv <= 0 || !floorAt(x, y)) continue;
+      const c = hc0(x, y),
+        H = lv * L;
+      for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+        const pts = hexPts(c.x + H * 0.55 * t - OFF, c.y + H * 0.35 * t, 1.02);
+        g.moveTo(pts[0][0], pts[0][1]);
+        for (let k = 1; k < 6; k++) g.lineTo(pts[k][0], pts[k][1]);
+        g.closePath();
+      }
+    }
+  g.fillStyle = '#000';
+  g.fill('nonzero');
+  g.restore();
+}
+/* Лестница на уровне 0 и ниже — лестница к высокому соседу. */
 export function drawFlatStairs(g, x, y) {
   const c = hc(x, y),
     cs = CELL;
@@ -417,7 +566,7 @@ export function drawFloor() {
   if (flat) drawAllStairsFlat(g);
   else
     for (let y = 0; y < S.h; y++)
-      for (let x = 0; x < S.w; x++) if (isStairs(x, y) && hAt(x, y) <= 0 && floorAt(x, y)) drawFlatStairs(g, x, y);
+      for (let x = 0; x < S.w; x++) if (isStairs(x, y) && hAt(x, y) <= 0 && floorAt(x, y)) drawLadder(g, x, y);
   if (S.terrain) drawTerrainFlat(g);
   /* кровь на полу: где ранили и где истекали кровью */
   for (const b of S.blood || []) {
@@ -470,6 +619,7 @@ export function drawFloor() {
       g.fillRect(-cs * 0.22, -cs * 0.03, cs * 0.36, cs * 0.06);
       g.restore();
     }
+  if (hasHeights() && !flat) drawLedgeShadows(g);
   /* стены, двери и решётки — от дальних рядов к ближним */
   for (const [x, y] of cellOrder()) {
     const k = key(x, y),
@@ -1019,7 +1169,85 @@ export function renderHL() {
   }
   drawLos(losLine);
   drawZlab(zlab);
+  drawLevels();
   renderForecast();
+}
+/* Метки уровня: одна на площадку — на ближней к зрителю свободной клетке; с «Уровнями» — цифра на каждом гексе. */
+let PLAT = [],
+  PLATK = '';
+function plateaus() {
+  const k = hgtSig() + '|' + Object.keys(S.stairs || {}).join(';');
+  if (k === PLATK) return PLAT;
+  PLATK = k;
+  PLAT = [];
+  const seen = new Set();
+  for (let y = 0; y < S.h; y++)
+    for (let x = 0; x < S.w; x++) {
+      const lv = hAt(x, y);
+      if (!lv || !floorAt(x, y) || isStairs(x, y) || seen.has(key(x, y))) continue;
+      const comp = [],
+        st = [[x, y]];
+      seen.add(key(x, y));
+      while (st.length) {
+        const [a, b] = st.pop();
+        comp.push([a, b]);
+        for (const [dx, dy] of NB(b)) {
+          const nx = a + dx,
+            ny = b + dy,
+            kk = key(nx, ny);
+          if (!seen.has(kk) && floorAt(nx, ny) && !isStairs(nx, ny) && hAt(nx, ny) === lv) {
+            seen.add(kk);
+            st.push([nx, ny]);
+          }
+        }
+      }
+      PLAT.push({ lv, cells: comp });
+    }
+  return PLAT;
+}
+export function drawLevels() {
+  const sv = $('#lvb');
+  if (!sv) return;
+  const W = boardW(),
+    H = boardH();
+  sv.setAttribute('width', W);
+  sv.setAttribute('height', H);
+  sv.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  if (!S || S.sim || !hasHeights()) {
+    sv.innerHTML = '';
+    return;
+  }
+  const cs = CELL,
+    f = n => n.toFixed(1),
+    out = [];
+  const busy = (x, y) => S.units.some(u => !u.down && cellsOf(u).some(c => c.x === x && c.y === y));
+  if (UI.lvnum) {
+    for (let y = 0; y < S.h; y++)
+      for (let x = 0; x < S.w; x++) {
+        const lv = hAt(x, y);
+        if (!lv || !floorAt(x, y)) continue;
+        const c = hc(x, y),
+          dy = busy(x, y) ? cs * 0.3 : cs * 0.07;
+        out.push(`<text class="ln all" x="${f(c.x)}" y="${f(c.y + dy)}" font-size="${f(cs * 0.2)}">${lv}</text>`);
+      }
+  }
+  for (const pl of plateaus()) {
+    const scr = pl.cells.map(([x, y]) => ({ x, y, p: hc(x, y), b: busy(x, y) }));
+    scr.sort((a, b) => Number(a.b) - Number(b.b) || b.p.y - a.p.y || a.p.x - b.p.x);
+    const { p } = scr[0],
+      bw = cs * 0.62,
+      bh = cs * 0.3,
+      tx = p.x - bw * 0.2,
+      s = bh * 0.32,
+      up = pl.lv > 0,
+      cy = p.y + (UI.lvnum ? cs * 0.3 : 0);
+    out.push(
+      `<g><rect class="lb" x="${f(p.x - bw / 2)}" y="${f(cy - bh / 2)}" width="${f(bw)}" height="${f(bh)}" rx="${f(bh / 2)}"/>` +
+        `<path class="lt" d="${up ? `M${f(tx - s)} ${f(cy + s * 0.7)}L${f(tx)} ${f(cy - s * 0.8)}L${f(tx + s)} ${f(cy + s * 0.7)}Z` : `M${f(tx - s)} ${f(cy - s * 0.7)}L${f(tx)} ${f(cy + s * 0.8)}L${f(tx + s)} ${f(cy - s * 0.7)}Z`}"/>` +
+        `<text class="ln" x="${f(p.x + bw * 0.14)}" y="${f(cy + bh * 0.24)}" font-size="${f(bh * 0.68)}">${Math.abs(pl.lv)}</text></g>`,
+    );
+  }
+  sv.innerHTML = out.join('');
 }
 function drawLos(l) {
   const sv = $('#losl');

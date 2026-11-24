@@ -33,7 +33,8 @@ import { atkMods, bdefOf, hasEff, hitCalc, pContest, reqOk, speedOf, stat } from
 import { AREAS, woundPenTxt } from '../rules/wounds';
 import { SET } from '../settings';
 import { S, alive, byId, friends, selUnit } from '../state';
-import { CELL, boardW, drawLight, layoutBoard, renderHL, renderTokens, tokPos } from './board';
+import { collapseDockOnPhone } from './phone';
+import { CELL, boardW, drawLight, renderHL, renderTokens, tokPos } from './board';
 import { renderEditor } from './editor';
 import { restart } from './game';
 import { hintOf } from './hints';
@@ -145,7 +146,7 @@ export const UI = (() => {
   const d = {
     zoc: true,
     fc: true,
-    hview: 'flat',
+    lvnum: false,
     logF: 'all',
     det: {},
   };
@@ -155,6 +156,11 @@ export const UI = (() => {
     if (!o.v || o.v < 2) {
       o.zoc = false;
       o.v = 2;
+    }
+    /* макет 24.11: на телефоне панель по умолчанию свёрнута — поле на весь экран */
+    if (o.v < 3) {
+      o.dockMin = true;
+      o.v = 3;
     }
     return o;
   } catch (e) {
@@ -596,19 +602,18 @@ export function renderTurn() {
   const cb = $('#btnCardSheet');
   if (cb) cb.onclick = () => openCardSheet();
   $('#bov').innerHTML =
-    `<button type="button" class="chipbtn" id="tgFc" aria-pressed="${!!UI.fc}" title="Шанс и Боль над целями и карточка прогноза у цели"><i></i>Прогноз</button><button type="button" class="chipbtn" id="tgZoc" aria-pressed="${!!(UI.zoc && SET.zoc)}" ${SET.zoc ? '' : 'disabled'} title="${SET.zoc ? 'Гексы, выход из которых вызовет удар противника' : 'Зона контроля выключена в правилах'}"><i></i>Зоны контроля</button><button type="button" class="chipbtn" id="tgLeg" title="Что означают значки над фигурами">Значки</button>${hasHeights() ? `<button type="button" class="chipbtn" id="tgHv" aria-pressed="${UI.hview === 'raised'}" title="Высоты на своём гексе (как в 4.5) или приподнятыми площадками"><i></i>Объём высот</button>` : ''}`;
+    `<button type="button" class="chipbtn" id="tgFc" aria-pressed="${!!UI.fc}" title="Шанс и Боль над целями и карточка прогноза у цели"><i></i>Прогноз</button><button type="button" class="chipbtn" id="tgZoc" aria-pressed="${!!(UI.zoc && SET.zoc)}" ${SET.zoc ? '' : 'disabled'} title="${SET.zoc ? 'Гексы, выход из которых вызовет удар противника' : 'Зона контроля выключена в правилах'}"><i></i>Зоны контроля</button><button type="button" class="chipbtn" id="tgLeg" title="Что означают значки над фигурами">Значки</button>${hasHeights() ? `<button type="button" class="chipbtn" id="tgLv" aria-pressed="${!!UI.lvnum}" title="Номер уровня на каждом гексе; без этого — одна метка на площадку"><i></i>Уровни</button>` : ''}`;
   $('#tgFc').onclick = () => {
     UI.fc = !UI.fc;
     saveUI();
     render();
   };
   $('#tgLeg').onclick = openLegend;
-  const hv = $('#tgHv');
-  if (hv)
-    hv.onclick = () => {
-      UI.hview = UI.hview === 'raised' ? 'flat' : 'raised';
+  const lvb = $('#tgLv');
+  if (lvb)
+    lvb.onclick = () => {
+      UI.lvnum = !UI.lvnum;
       saveUI();
-      layoutBoard();
       render();
     };
   $('#tgZoc').onclick = () => {
@@ -691,7 +696,7 @@ export function renderActs() {
     const k = numbered && ctrl && st.ok && n < 9 ? ++n : 0;
     const tp = numbered && top < 3 ? ++top : 0;
     const sel = S.act === id || (!S.act && id === 'move' && dflt);
-    return `<button type="button" class="act${tp ? ' top' : ''}${sel ? ' sel' : ''}${!S.act && id === 'move' && dflt ? ' dflt' : ''}${st.ok ? '' : ' off'}${a.pending ? ' pd' : ''}" data-act="${id}" title="${esc(actTitle(u, id, a, st, ctrl))}"${k ? ` data-key="${k}"` : ''} aria-disabled="${st.ok ? 'false' : 'true'}"><span class="n">${esc(a.name)}</span><span class="m">${!st.ok && ctrl && st.why ? `<em>${st.why}</em>` : actMeta(u, id, a)}</span><span class="c" title="${cost} ОД">${cost ? '<b></b>'.repeat(cost) : '<b class="z"></b>'}</span>${k ? `<kbd>${k}</kbd>` : ''}</button>`;
+    return `<button type="button" class="act${tp ? ' top t' + tp : ''}${sel ? ' sel' : ''}${!S.act && id === 'move' && dflt ? ' dflt' : ''}${st.ok ? '' : ' off'}${a.pending ? ' pd' : ''}" data-act="${id}" title="${esc(actTitle(u, id, a, st, ctrl))}"${k ? ` data-key="${k}"` : ''} aria-disabled="${st.ok ? 'false' : 'true'}"><span class="n">${esc(a.name)}</span><span class="m">${!st.ok && ctrl && st.why ? `<em>${st.why}</em>` : actMeta(u, id, a)}</span><span class="c" title="${cost} ОД">${cost ? '<b></b>'.repeat(cost) : '<b class="z"></b>'}</span>${k ? `<kbd>${k}</kbd>` : ''}</button>`;
   };
   let html = '<div class="agroups">';
   [0, 1, 2, 4, 3].forEach(gi => {
@@ -701,6 +706,9 @@ export function renderActs() {
   });
   if (off.length)
     html += `<div class="ag"><span class="agn" aria-hidden="true">&nbsp;</span><div class="agb"><button type="button" class="act more" id="btnMore" aria-expanded="${!!UI.more}"><span class="n">${UI.more ? 'Скрыть недоступные' : 'Ещё ' + off.length}</span><span class="m">${UI.more ? '' : 'сейчас недоступны'}</span></button></div></div>`;
+  /* телефон, свёрнутая панель: два главных действия и «Ещё» — разворачивает панель со всеми */
+  if (ids.length > 2)
+    html += `<button type="button" class="act top allacts" id="btnAllActs" aria-label="Все действия"><span class="n">Ещё ${ids.length - Math.min(2, top)}</span><span class="m">все действия</span></button>`;
   html += '</div>';
   if (off.length && UI.more) html += `<div class="agoff">${off.map(id => btn(id, false)).join('')}</div>`;
   const left = ctrl ? alive(S.phase).filter(o => o.od > 0 && !o.skipped) : [];
@@ -721,6 +729,8 @@ export function renderActs() {
   );
   const ai = $('#btnAiOne');
   if (ai) ai.onclick = () => run(() => aiTurn(u));
+  const all = $('#btnAllActs');
+  if (all) all.onclick = () => $('#dockTog').click();
   const more = $('#btnMore');
   if (more)
     more.onclick = () => {
@@ -738,6 +748,7 @@ export function renderActs() {
       }
       HINT_PIN = null;
       onAction(id);
+      collapseDockOnPhone();
     };
     b.onmouseenter = b.onfocus = () => {
       HINT_ID = id;

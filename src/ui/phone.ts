@@ -6,11 +6,39 @@ import { $ } from '../util';
 import { layoutBoard, ROT } from './board';
 import { UI, closeCardSheet, openCardSheet, saveUI } from './panels';
 import { LP, zoomReset } from './zoom';
+import { phoneH, phoneV } from './mode';
 
 const PH = () => window.innerWidth <= 700;
 export const dockMin = () => (PH() ? !!UI.dockMin : UI.dockMinD !== false);
+/* Кнопки поля (слои, целиком, поворот, отмена) на телефоне живут в панели, а не поверх поля. */
+function placeCtl() {
+  const ctl = $('#bctl'),
+    dock = $('#dock'),
+    wrap = $('#wrap');
+  if (!ctl || !dock || !wrap) return;
+  const inDock = phoneV() || phoneH();
+  if (inDock && ctl.parentElement !== dock) dock.insertBefore(ctl, $('#ctx'));
+  else if (!inDock && ctl.parentElement !== wrap) wrap.appendChild(ctl);
+}
+function syncMode() {
+  document.body.classList.toggle('ph-v', phoneV());
+  document.body.classList.toggle('ph-h', phoneH());
+  placeCtl();
+}
+/* Слои поля (прогноз, зоны, значки, уровни) на телефоне — всплывающий список над панелью. */
+export function setLayers(open: boolean) {
+  document.body.classList.toggle('layers-open', open);
+  const b = $('#btnLayers');
+  if (b) b.setAttribute('aria-expanded', String(open));
+}
+/* Выбрали действие в развёрнутой панели телефона — панель сворачивается, поле снова большое. */
+export function collapseDockOnPhone() {
+  if (phoneV() && !dockMin()) setDock(true);
+}
 function syncDock() {
-  const m = dockMin();
+  syncMode();
+  /* горизонтально панель всегда развёрнута: действия списком в колонке */
+  const m = dockMin() && !phoneH();
   document.body.classList.toggle('dock-min', m);
   const t = $('#dockTog');
   t.setAttribute('aria-expanded', String(!m));
@@ -99,6 +127,12 @@ export function initPhone() {
     if (e.key === 'Escape' && document.body.classList.contains('sheet-open')) closeCardSheet();
   });
   LP.cb = id => openCardSheet(id);
+  const lb = $('#btnLayers');
+  if (lb) lb.onclick = () => setLayers(!document.body.classList.contains('layers-open'));
+  /* касание поля закрывает список слоёв */
+  $('#wrap').addEventListener('pointerdown', e => {
+    if (!(e.target as HTMLElement).closest('.bov')) setLayers(false);
+  });
   $('#btnRot').onclick = () => {
     UI.rot = ROT ? 'off' : 'on';
     saveUI();

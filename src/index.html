@@ -25,6 +25,7 @@
     <details class="tmenu" id="tmenu">
       <summary>Инструменты</summary>
       <nav class="tools" aria-label="Инструменты">
+        <button id="btnRestart2" type="button" class="menu-phone">Начать сцену заново</button>
         <button id="btnEditor" type="button">Редактор поля</button>
         <button id="btnOdds" type="button">Шансы</button>
         <button id="btnSim" type="button">Симуляция</button>
@@ -51,6 +52,7 @@
           <canvas id="light"></canvas>
           <svg id="hl" xmlns="http://www.w3.org/2000/svg"></svg>
           <svg id="links" xmlns="http://www.w3.org/2000/svg"></svg>
+          <svg id="lvb" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"></svg>
           <div id="toks"></div>
           <div id="fc"></div>
           <div id="fx"></div>
@@ -59,7 +61,7 @@
         </div>
         <div class="bov" id="bov"></div>
         <div id="banner" class="banner" hidden></div>
-        <div class="bctl" id="bctl"><span class="hist" id="hist"></span><button type="button" id="btnRot" class="icon phone-only" aria-label="Повернуть поле" title="Повернуть поле"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3M20 4v4h-4M20 12a8 8 0 0 1-14 5.3M4 20v-4h4"/></svg></button><button type="button" id="btnFit" class="icon" aria-label="Вернуть поле целиком" title="Вернуть поле целиком"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button></div>
+        <div class="bctl" id="bctl"><button type="button" id="btnLayers" class="icon phone-only lay" aria-label="Слои поля: прогноз, зоны, значки, уровни" aria-expanded="false" title="Слои поля"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg><span>Слои</span></button><span class="hist" id="hist"></span><button type="button" id="btnRot" class="icon phone-only" aria-label="Повернуть поле" title="Повернуть поле"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3M20 4v4h-4M20 12a8 8 0 0 1-14 5.3M4 20v-4h4"/></svg></button><button type="button" id="btnFit" class="icon" aria-label="Вернуть поле целиком" title="Вернуть поле целиком"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button></div>
       </div>
       <div class="dock" id="dock">
         <button type="button" class="handle" id="dockTog" aria-label="Свернуть или развернуть панель действий" aria-expanded="true"></button>
