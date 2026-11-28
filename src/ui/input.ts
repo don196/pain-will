@@ -66,7 +66,23 @@ export async function endTurnUI() {
   await onEndTurn();
 }
 export const CELL_KINDS = ['door', 'objectStrike', 'objectPush'];
-export const IMMEDIATE = ['self', 'circle', 'prisonCircle', 'prisonRelease', 'charge', 'escape', 'aura', 'breakbind', 'unbind', 'standup', 'prep', 'unlasso'];
+export const IMMEDIATE = [
+  'self',
+  'circle',
+  'prisonCircle',
+  'prisonRelease',
+  'charge',
+  'escape',
+  'aura',
+  'breakbind',
+  'unbind',
+  'standup',
+  'prep',
+  'unlasso',
+  'ragnaCut',
+  'lazarMortify',
+  'pickup',
+];
 export function onAction(id) {
   const u = selUnit();
   if (!canControl(u)) return;
@@ -346,6 +362,8 @@ export function showTip(e, p) {
           ow = openWounds(t).length,
           cl = Math.min(pts, ow);
         html = `<b>Перевязка</b> → ${t === u ? 'себя' : esc(t.name)} · 1 бинт<div class="m">открытых ран ${ow}${t.bleed ? `, кровотечение (тяжесть ${t.bleed})` : ', не кровоточит'}</div><div class="m">3 пункта: закроет ран ${cl}${t.bleedX && cl < pts ? ', уймёт особое кровотечение' : ''}</div>`;
+      } else {
+        html = `<b>${esc(a.name)}</b> → ${t === u ? 'себя' : esc(t.name)} · ${a.cost} ОД${a.hint ? `<div class="m">${esc(a.hint)}</div>` : ''}`;
       }
     }
     tip.innerHTML = html;

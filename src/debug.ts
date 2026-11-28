@@ -46,8 +46,10 @@ import * as phone from './ui/phone';
 import * as expedition from './ui/expedition';
 import * as terrain from './rules/terrain';
 import * as terrData from './data/terrain';
+import * as heroes from './rules/heroes';
 
 const all: any[] = [
+  heroes,
   terrain,
   terrData,
   sound,

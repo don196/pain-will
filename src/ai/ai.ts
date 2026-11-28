@@ -16,6 +16,7 @@ import {
   validThrow,
 } from '../rules/actions';
 import { stOf } from '../rules/combat';
+import { droppedFor, isBerserk, stigmataOf } from '../rules/heroes';
 import { disOf, guiltCell, obsessLock } from '../rules/disorders';
 import {
   bfs,
@@ -77,7 +78,29 @@ export async function aiStep(u: Unit) {
   if (!foes.length) return false;
   if (onEdge(u)) {
     if (okAct(u, 'bandage') && canTarget(u, A.bandage, u)) return await perform(u, 'bandage', u);
+    /* Лазарь на Пороге может продолжать петь Литургию голосом */
+    if (u.tpl === 'lazar') return await AI.v2lazar(u, foes);
     return false;
+  }
+  /* Если боец обезоружен — сначала подобрать своё оружие (или подойти к нему) */
+  if ((u.disarmed || (u.droppedSwords || 0) > 0) && okAct(u, 'pickupWeapon')) {
+    return await perform(u, 'pickupWeapon');
+  }
+  if (u.disarmed && okAct(u, 'move') && !u._ai.pickupMv) {
+    const dr = droppedFor(u)[0];
+    if (dr) {
+      u._ai.pickupMv = true;
+      const sp = speedOf(u),
+        dist = bfs(u, { max: sp });
+      let best = null;
+      for (const [k, v] of dist) {
+        if (!v.d) continue;
+        const [x, y] = unkey(k);
+        const d = cheb({ x, y }, dr);
+        if (!best || d < best.d) best = { x, y, d };
+      }
+      if (best && best.d < cheb(u, dr)) return await performMove(u, best.x, best.y);
+    }
   }
   if (await aiRescueMove(u, foes)) return true;
   if (u.prone && okAct(u, 'standup')) return await perform(u, 'standup');
@@ -597,6 +620,146 @@ Object.assign(AI, {
     const id = u.loaded && (u.ammo.hxbow || 0) > 0 ? 'hxbow' : 'wcleaver',
       t = nearestFoe(u, foes, id);
     return t && okAct(u, 'move') ? await aiApproach(u, id, t) : false;
+  },
+  async v2ragna(u: Unit, foes) {
+    const adj = foes.filter(f => near1(u, f));
+    if (adj.length) {
+      /* Если Боль 3 (в шаге от Берсерка) и есть 2+ ОД — Кровавый надрез ради Берсерка и +2 */
+      if (!isBerserk(u) && painOf(u) === 3 && u.od >= 2 && !u._ai.cut && okAct(u, 'ragnaCut')) {
+        u._ai.cut = true;
+        return await perform(u, 'ragnaCut');
+      }
+      /* Ножницы по опасному вооружённому врагу с высоким запасом (Щитоносец и т.п.) */
+      if (u.od >= 2 && okAct(u, 'ragnaScissors') && !u._ai.scis) {
+        const t = adj
+          .filter(f => !f.disarmed && canTarget(u, A.ragnaScissors, f) && (f.shield > 0 || f.hp >= 4))
+          .sort((a, b) => (b.shield || 0) - (a.shield || 0) || b.hp - a.hp)[0];
+        if (t) {
+          u._ai.scis = true;
+          return await perform(u, 'ragnaScissors', t);
+        }
+      }
+      /* Сдвоенный удар: в Берсерке (+2 гасит −3) или чтобы сжечь чужие реакции */
+      if (okAct(u, 'ragnaDouble')) {
+        const t = adj
+          .filter(f => canTarget(u, A.ragnaDouble, f) && (!openT(f) || isBerserk(u)) && f.hp >= 2)
+          .sort((a, b) => a.hp - b.hp)[0];
+        if (t) return await perform(u, 'ragnaDouble', t);
+      }
+      const st = bestStrike(u, ['ragnaSword']);
+      if (st) return await perform(u, st.id, st.t);
+    }
+    /* Встречный прорыв к врагу в пределах скорости */
+    if (okAct(u, 'ragnaCharge')) {
+      const ts = targetsFor(u, 'ragnaCharge').sort((a, b) => a.hp - b.hp);
+      if (ts.length) return await perform(u, 'ragnaCharge', ts[0]);
+    }
+    const t = nearestFoe(u, foes, 'ragnaSword');
+    if (t && okAct(u, 'move') && (await aiApproach(u, 'ragnaSword', t))) return true;
+    if (okAct(u, 'prep')) return await perform(u, 'prep');
+    return false;
+  },
+  async v2lazar(u: Unit, foes) {
+    const lit: string[] = Array.isArray(u.liturgy) ? u.liturgy : [];
+    const in3Foes = targetsFor(u, 'lazarWrath');
+    const allies = [u, ...friends(u)].filter(o => !o.down && cheb(u, o) <= 3);
+    /* Если не хватает «Гнева», а врагов в 3 гексах ещё нет — сначала подойти на дистанцию голоса */
+    if (!onEdge(u) && !lit.includes('wrath') && !in3Foes.length && okAct(u, 'move') && !u._ai.adv) {
+      const nf = nearestFoe(u, foes, 'lazarWrath');
+      if (nf && cheb(u, nf) > 3) {
+        u._ai.adv = true;
+        if (await aiApproach(u, 'lazarWrath', nf)) return true;
+      }
+    }
+    /* Перед замыканием Литургии (2 разных слова собрано и враг рядом) можно взять 1 Стигмат, если здоров и не кровоточит */
+    if (
+      !onEdge(u) &&
+      new Set(lit).size === 2 &&
+      in3Foes.length > 0 &&
+      stigmataOf(u) < 2 &&
+      painOf(u) <= 1 &&
+      !u.bleed &&
+      !foes.some(f => near1(u, f)) &&
+      !u._ai.mort &&
+      okAct(u, 'lazarMortify')
+    ) {
+      u._ai.mort = true;
+      return await perform(u, 'lazarMortify');
+    }
+    const missing = (['wrath', 'mercy', 'faith'] as const).filter(w => !lit.includes(w));
+    const tryWord = async (w: 'wrath' | 'mercy' | 'faith', force: boolean) => {
+      const id = w === 'wrath' ? 'lazarWrath' : w === 'mercy' ? 'lazarMercy' : 'lazarFaith';
+      if (!okAct(u, id)) return false;
+      if (w === 'wrath') {
+        const ts = targetsFor(u, id).sort((a, b) => stOf(b, 'unst') - stOf(a, 'unst') || a.hp - b.hp);
+        if (ts.length) return await perform(u, id, ts[0]);
+      } else if (w === 'mercy') {
+        const needy = allies
+          .filter(o => (o.bleed > 0 && !hasEff(o, 'bleedStop')) || Object.values(o.st || {}).some((v: any) => v > 0))
+          .sort((a, b) => (b.bleed || 0) - (a.bleed || 0));
+        const tgt = needy[0] || (force ? allies[0] : null);
+        if (tgt) return await perform(u, id, tgt);
+      } else if (w === 'faith') {
+        const front = allies
+          .filter(o => !hasEff(o, 'lazarFaith'))
+          .sort(
+            (a, b) =>
+              (foes.some(f => cheb(b, f) <= 2) ? 1 : 0) - (foes.some(f => cheb(a, f) <= 2) ? 1 : 0) ||
+              painOf(b) - painOf(a),
+          );
+        const tgt = front[0] || (force ? allies[0] : null);
+        if (tgt) return await perform(u, id, tgt);
+      }
+      return false;
+    };
+    /* Сначала недостающие слова Литургии (чтобы замкнуть Чудо «Искупление») */
+    for (const w of missing) if (await tryWord(w, true)) return true;
+    /* Иначе полезные слова без холостого спама */
+    for (const w of ['wrath', 'mercy', 'faith'] as const) if (await tryWord(w, false)) return true;
+    if (onEdge(u)) return false;
+    if (foes.some(f => near1(u, f)) && okAct(u, 'move') && !u._ai.ret) {
+      u._ai.ret = true;
+      if (await aiRetreat(u, 'lazarWrath')) return true;
+    }
+    const st = bestStrike(u, ['lazarStaff']);
+    if (st) return await perform(u, st.id, st.t);
+    const t = nearestFoe(u, foes, 'lazarWrath');
+    if (t && okAct(u, 'move') && (await aiApproach(u, 'lazarWrath', t))) return true;
+    return false;
+  },
+  async v2bernhard(u: Unit, foes) {
+    /* Выпад по врагу ровно в 2 гексах по прямой */
+    if (okAct(u, 'bernhardLunge')) {
+      const ts = targetsFor(u, 'bernhardLunge').sort((a, b) => a.hp - b.hp);
+      if (ts.length) return await perform(u, 'bernhardLunge', ts[0]);
+    }
+    const adj = foes.filter(f => near1(u, f));
+    if (adj.length) {
+      /* Финт по защищённому врагу без Ряби (высокий шанс усиленного/крита для Личного примера) */
+      if (u.od >= 2 && okAct(u, 'bernhardFeint') && !u._ai.feint) {
+        const t = adj.find(f => !stOf(f, 'ripple') && !openT(f) && f.hp >= 3 && canTarget(u, A.bernhardFeint, f));
+        if (t) {
+          u._ai.feint = true;
+          return await perform(u, 'bernhardFeint', t);
+        }
+      }
+      /* Сначала бьём рапирой (если врага можно добить или запустить Личный пример) */
+      const st = bestStrike(u, ['bernhardRapier']);
+      if (st && (st.t.hp <= 2 || hasEff(u, 'duelStance') || u.od === 1)) return await perform(u, st.id, st.t);
+      /* Дуэльная стойка против сильного соседнего бойца, если в руке есть ОД на защиту */
+      if (!hasEff(u, 'duelStance') && okAct(u, 'bernhardDuel') && !u._ai.duel) {
+        const strong = adj.filter(f => f.hp >= 3).sort((a, b) => b.hp - a.hp)[0];
+        if (strong) {
+          u._ai.duel = true;
+          return await perform(u, 'bernhardDuel', strong);
+        }
+      }
+      if (st) return await perform(u, st.id, st.t);
+    }
+    const t = nearestFoe(u, foes, 'bernhardRapier');
+    if (t && okAct(u, 'move') && (await aiApproach(u, 'bernhardRapier', t))) return true;
+    if (okAct(u, 'prep')) return await perform(u, 'prep');
+    return false;
   },
 });
 

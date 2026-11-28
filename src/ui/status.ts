@@ -1,6 +1,7 @@
 import type { Unit } from '../types';
 import { AREA_RU, ST_ICON, ST_RU } from '../data/labels';
-import { STRONG, fullDef, stOf, v2DefOptions } from '../rules/combat';
+import { STRONG, fullDef, stOf, tplFlag, v2DefOptions } from '../rules/combat';
+import { LITURGY_RU, duelTargetId, exampleBonus, isBerserk, stigmataOf } from '../rules/heroes';
 import { LASSO_R, lassoTarget } from '../rules/lasso';
 import { weakMag } from '../rules/magic';
 import { armorNow, limOf, onEdge, painOf } from '../rules/pain';
@@ -50,6 +51,29 @@ export function v2CardLines(u: Unit) {
   }
   if (u.prep) o.push(`⏱ подготовка: ${u.prep.kind === 'push' ? 'толчок' : 'удар'} по первому врагу в досягаемости`);
   if (hasEff(u, 'magsight')) o.push(`👁 магическое зрение, ходов осталось ${getEff(u, 'magsight').left}`);
+  if (tplFlag(u, 'berserk')) {
+    if (isBerserk(u))
+      o.push('🔥 <b>Берсерк активен</b>: игнор штрафа Боли и 1–2 стаков ран рук/ног, +2 к ближним атакам, уклонение запрещено');
+    else o.push(`<span class="dim">Берсерк: включится при Боли 4+ (сейчас ${painOf(u)})</span>`);
+  }
+  if (hasEff(u, 'bloodCut')) o.push('🩸 Кровавый надрез: +2 к следующей атаке в этот ход');
+  if (u.disarmed) o.push('⚔ обезоружен: оружие выбито, подобрать за 1 ОД');
+  else if (u.droppedSwords > 0) o.push('⚔ один меч выбит: парные приёмы недоступны до подбора');
+  if (tplFlag(u, 'liturgy')) {
+    const lit = Array.isArray(u.liturgy) ? u.liturgy : [];
+    const slots = [0, 1, 2].map(i => (lit[i] ? LITURGY_RU[lit[i]] : '—')).join(' · ');
+    o.push(`🕯 Литургия: <b>[${slots}]</b> (3 разных слова → Чудо «Искупление»)`);
+    o.push(`✝ Стигматы: <b>${stigmataOf(u)}</b>/3`);
+  }
+  if (hasEff(u, 'lazarFaith')) o.push('✝ Слово «Вера»: +2 к активной защите до хода Лазаря');
+  if (hasEff(u, 'bleedStop')) o.push('🕊 кровотечение остановлено на этот раунд');
+  const eb = exampleBonus(u);
+  if (eb) o.push(`⭐ Личный пример: <b>+${eb}</b> к атакам и активной защите`);
+  const dt = duelTargetId(u);
+  if (dt != null) {
+    const de = byId(dt);
+    o.push(`🤺 Дуэльная стойка против ${de ? esc(de.name) : 'врага'}: рапира без штрафа веса при парировании, контратака с перевеса 1+`);
+  }
   if (u.side === 'pc' || fullDef(u))
     o.push(
       `<span class="dim">Активная защита: ${v2DefOptions(
@@ -138,6 +162,13 @@ export const FX_FULL = {
   oily: 'Горючий: от огня вспыхнет — ещё 2 Нагрева',
   cover: 'Под Перехватом',
   msight: 'Магическое зрение',
+  berserk: 'Берсерк (+2 к ближним атакам, нет штрафа Боли, без уклонения)',
+  bcut: 'Кровавый надрез (+2 к следующей атаке)',
+  disarm: 'Обезоружен (оружие на полу)',
+  stigma: 'Стигматы Лазаря',
+  faith: 'Слово «Вера» (+2 к активной защите)',
+  example: 'Личный пример (+1/+2 к атакам и защите)',
+  duel: 'Дуэльная стойка (контратака с перевеса 1+)',
 };
 
 export const FX_ICON = {
@@ -166,6 +197,13 @@ export const FX_ICON = {
   oily: 'f:M8 2c2.5 3.4 4.5 6 4.5 8.2A4.5 4.5 0 0 1 3.5 10.2C3.5 8 5.5 5.4 8 2z',
   cover: 'M8 1L14 3v5c0 4-3 6-6 7c-3-1-6-3-6-7V3Z',
   msight: 'M1 8Q8 2 15 8Q8 14 1 8ZM8 6a2 2 0 1 0 .01 0',
+  berserk: 'f:M8 1c3 3 5 5.5 5 9a5 5 0 0 1-10 0c0-3 2-5.5 5-9ZM8 6c-1.5 2-2 3.2-2 4.5a2 2 0 0 0 4 0C10 9.2 9.5 8 8 6Z',
+  bcut: 'M3 13L13 3M5 3l8 8',
+  disarm: 'M2 14L14 2M4 2l10 10M2 10l4 4',
+  stigma: 'M8 2v12M4 6h8',
+  faith: 'M8 1.5L13.5 4v4.5c0 3-2.2 5.2-5.5 6.2-3.3-1-5.5-3.2-5.5-6.2V4Z',
+  example: 'f:M8 1l2.1 4.5L15 6.2l-3.6 3.4.9 5L8 12.2 3.7 14.6l.9-5L1 6.2l4.9-.7Z',
+  duel: 'M3 13L13 3M10 3h3v3M3 3l10 10',
   x: 'M8 5a3 3 0 1 0 .01 0',
 };
 
@@ -243,6 +281,15 @@ export function fxList(u: Unit) {
   if (hasEff(u, 'ordnow')) add('ord', 'приказ');
   if (u.prep) add('prep', u.prep.kind === 'push' ? 'ждёт: толчок' : 'ждёт: удар');
   if (hasEff(u, 'magsight')) add('msight', 'зрение');
+  if (isBerserk(u)) add('berserk', 'берсерк');
+  if (hasEff(u, 'bloodCut')) add('bcut', 'надрез +2');
+  if (u.disarmed || u.droppedSwords > 0) add('disarm', 'обезоружен');
+  const stg = tplFlag(u, 'liturgy') ? stigmataOf(u) : 0;
+  if (stg) add('stigma', 'стигматы', stg);
+  if (hasEff(u, 'lazarFaith')) add('faith', 'вера +2');
+  const eb = exampleBonus(u);
+  if (eb) add('example', 'пример', eb);
+  if (duelTargetId(u) != null) add('duel', 'дуэль');
   return o;
 }
 

@@ -71,6 +71,9 @@ export function mkUnit(tpl: string, side: Side | null, x: number, y: number): Un
     flash: null,
     ai: t.ai,
     acts: t.acts.slice(),
+    liturgy: [],
+    disarmed: false,
+    droppedSwords: 0,
     _ai: {},
     _once: {},
   };
@@ -283,6 +286,7 @@ export function buildState(snap): GameState {
     w: snap.w,
     h: snap.h,
     traps: [],
+    dropped: [],
     walls: new Set(snap.walls),
     torches: snap.torches.map(t => ({
       ...t,
@@ -348,6 +352,9 @@ export function snapshotNow() {
         binding: null,
         moveOnly: false,
         flash: null,
+        liturgy: [],
+        disarmed: false,
+        droppedSwords: 0,
         _ai: {},
         _once: {},
       });

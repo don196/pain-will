@@ -234,7 +234,7 @@ export function atkMods(u: Unit, act: Action, t) {
     ['attack', 'pair'].includes(act.kind) &&
     !act.magic &&
     act.fixed == null &&
-    !act.noPain &&
+    (!act.noPain || act.lightBonus) &&
     !['improv', 'buckler', 'vetShield', 'bucklerTap'].includes(actId(act)) &&
     wClass(u, act) === 'light'
   )
@@ -339,7 +339,7 @@ export function hitCalc(att: Unit, act: Action, def: Unit, opt: Opts = {}) {
     p[t]++;
     E += dm[t];
   }
-  const reps = 1;
+  const reps = act.repeats || 1;
   return {
     hit: 1 - p[0] / 20,
     p: p.map(x => x / 20),

@@ -19,11 +19,18 @@ import {
   weaponsOf,
   zocWeapon,
 } from '../rules/actions';
-import { V2_EFF, addSt, mast, mastMg, partSt, setProne, stOf, v2DefOptions } from '../rules/combat';
+import { V2_EFF, addSt, mast, mastMg, setProne, stOf, v2DefOptions } from '../rules/combat';
+import {
+  armDisabled,
+  canPickupWeapon,
+  hasBothArms,
+  hasWeaponAvailable,
+  hasWorkingArm,
+} from '../rules/heroes';
 import { changeWill, disForm, disLock, disOf } from '../rules/disorders';
 import { near1, pairOptions, posOf, unitAt } from '../rules/geometry';
 import { hAt, hasHeights } from '../rules/height';
-import { lassoPart, lassoTarget } from '../rules/lasso';
+import { immobile, lassoTarget } from '../rules/lasso';
 import { darkPen, unitLight } from '../rules/light';
 import { ev, uName } from '../rules/log';
 import { curseCalc, weakMag } from '../rules/magic';
@@ -52,6 +59,10 @@ export function actState(u: Unit, id) {
       show: false,
     };
   if (id === 'unlasso' && !lassoTarget(u))
+    return {
+      show: false,
+    };
+  if (id === 'pickupWeapon' && !canPickupWeapon(u))
     return {
       show: false,
     };
@@ -117,8 +128,20 @@ export function actState(u: Unit, id) {
   else if (a.kind === 'move' && u.hold) why = 'удерживает пленника';
   else if (a.kind === 'prep' && u.prep) why = 'уже готовится';
   else if (a.lasso && lassoTarget(u)) why = 'силок занят';
-  else if (ATTACK_KINDS.includes(a.kind) && !a.magic && !a.lasso && (partSt(u, 'armR') >= 3 || lassoPart(u) === 'armR' || u.grabbedArm === 'armR'))
+  else if (!hasWeaponAvailable(u, a)) why = a.twoArms && u.droppedSwords > 0 ? 'нужны оба меча' : 'обезоружен';
+  else if (a.twoArms && !hasBothArms(u)) why = 'нужны обе рабочие руки';
+  else if (a.eitherArm && !hasWorkingArm(u)) why = 'нет рабочей руки';
+  else if (
+    (ATTACK_KINDS.includes(a.kind) || ['bernhardLunge', 'bernhardDuel'].includes(a.kind)) &&
+    !a.magic &&
+    !a.lasso &&
+    !a.eitherArm &&
+    !a.twoArms &&
+    armDisabled(u, 'armR')
+  )
     why = 'рука с оружием не действует';
+  else if ((a.kind === 'ragnaCharge' || a.kind === 'bernhardLunge') && (u.prone || immobile(u)))
+    why = u.prone ? 'сбит с ног' : 'обездвижен';
   else if (disLock(u, id)) why = disLock(u, id);
   else if (!hasTargets(u, id)) why = 'нет доступной цели';
   return {
@@ -135,7 +158,7 @@ export function actsOf(u: Unit) {
   }
   if (!out.includes('swap')) out.push('swap', 'door');
   if (u.side === 'pc') out.push('objectStrike', 'objectPush', 'coverFull');
-  out.push('breakbind', 'unbind', 'unlasso');
+  out.push('breakbind', 'unbind', 'unlasso', 'pickupWeapon');
   if (u.side === 'pc') out.push('revive');
   return out;
 }
@@ -189,12 +212,12 @@ export function actGroup(id, a) {
   if (a.kind === 'push') return 1;
   if (a.kind === 'unlasso') return 3;
   if (
-    ['throw', 'bandage', 'cauterHeal', 'trap', 'wswap', 'revive', 'objectStrike', 'objectPush'].includes(a.kind) ||
+    ['throw', 'bandage', 'cauterHeal', 'trap', 'wswap', 'revive', 'objectStrike', 'objectPush', 'pickup'].includes(a.kind) ||
     id === 'reload' ||
     id === 'coverFull'
   )
     return 3;
-  if ((ATTACK_KINDS.includes(a.kind) || a.kind === 'pair') && !a.magic) return 1;
+  if ((ATTACK_KINDS.includes(a.kind) || ['pair', 'ragnaCharge', 'bernhardLunge'].includes(a.kind)) && !a.magic) return 1;
   return 2;
 }
 /* Подсказка кнопки действия: в свёрнутой панели вторая строка скрыта. */
@@ -204,15 +227,24 @@ function actTitle(u: Unit, id, a, st, ctrl) {
 }
 export function actMeta(u: Unit, id, a) {
   const left = a.ammo ? ' · ×' + ((u.ammo || {})[id] || 0) : '';
-  if (['attack', 'pair'].includes(a.kind) && a.fixed == null && (a.K || a.base != null))
+  if (['attack', 'pair'].includes(a.kind) && a.fixed == null && !a.noPain && (a.K || a.base != null || a.pcls))
     return (
       'Боль ' +
       [1, 2, 3].map(t => PCLS[wClass(u, a)][t]).join('·') +
       ' · ' +
       PTYP_RU[wType(a)] +
+      (a.repeats > 1 ? ' ×' + a.repeats : '') +
       (a.ranged ? ' · ' + a.range + ' г.' : (a.reach || 1) > 1 ? ' · дост. ' + a.reach : '') +
       left
     );
+  if (a.kind === 'attack' && a.noPain) return a.feintRipple ? 'без Боли · Рябь +1' : 'без Боли';
+  if (a.kind === 'ragnaCharge') return 'до ' + speedOf(u) + ' г. + удар мечом';
+  if (a.kind === 'ragnaCut') return 'себе 1 Боль · +2 к атаке';
+  if (a.kind === 'lazarWord') return (a.ally ? 'союзник/сам · ' : 'враг · ') + (a.range || 3) + ' г. · голос';
+  if (a.kind === 'lazarMortify') return 'себе 1 Боль + рана · +1 Стигмат';
+  if (a.kind === 'bernhardLunge') return '2 г. по прямой · шаг + рапира';
+  if (a.kind === 'bernhardDuel') return 'сосед · контратака с 1+';
+  if (a.kind === 'pickup') return 'поднять выбитое оружие';
   if (a.kind === 'attack' && a.fixed != null) return a.fixed ? 'урон ' + a.fixed + '' : 'без урона';
   if (a.kind === 'move') return a.stepback ? '1 гекс · без реакций зоны · раз за ход' : speedOf(u) + ' гекс. за ОД';
   if (a.kind === 'push') return 'Сила ' + stat(u, 'str') + (u.shield > 0 ? ' + щит 2' : '');
@@ -570,6 +602,10 @@ export function renderTurn() {
         ordback: 'выберите союзника в 2 гексах',
         curse2: 'выберите врага в 3 гексах',
         habits: 'выберите врага',
+        ragnaCharge: 'выберите видимого врага в пределах скорости',
+        bernhardLunge: 'выберите врага в 2 гексах по прямой',
+        bernhardDuel: 'выберите соседнего врага',
+        lazarWord: a.ally ? 'выберите союзника в 3 гексах или себя' : 'выберите видимого врага в 3 гексах',
       }[a.kind] || 'выберите цель';
     const n = S.units.filter(t => canTarget(u, a, t)).length;
     prompt = `${esc(a.name)}: ${what}${FC_KINDS.includes(a.kind) && n ? ` · целей в досягаемости: ${n}` : ''}`;

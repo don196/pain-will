@@ -74,7 +74,7 @@ export function openRules() {
       ['false', 'рядовые только уклоняются; блок, парирование и контратака — у особых'],
       ['true', 'все противники защищаются как герои'],
     ])}</div>
-    <div class="opt"><span class="lbl">Группа героев в сценариях</span><div class="ch">${heroes.map(k => `<label>${esc(T[k].name)} <input type="number" class="ni" min="0" max="3" data-party="${k}" value="${SET.party.filter(x => x === k).length}" style="width:52px" aria-label="Сколько: ${esc(T[k].name)}"></label>`).join('')}</div><span class="note">Сколько каждого героя ставить на места героев в сценарии. Сценарий перезапускается.</span></div>
+    <div class="opt"><span class="lbl">Группа героев в сценариях</span><div class="ch">${heroes.map(k => `<label>${esc(T[k].name)} <input type="number" class="ni" min="0" max="3" data-party="${k}" value="${SET.party.filter(x => x === k).length}" style="width:52px" aria-label="Сколько: ${esc(T[k].name)}"></label>`).join('')}</div><div class="ch"><button type="button" data-preset="conrad,helga,walter">Тройка 1: Конрад, Хельга, Вальтер</button><button type="button" data-preset="ragna,lazar,bernhard">Тройка 2: Рагна, Лазарь, Бернхард</button></div><span class="note">Сколько каждого героя ставить на места героев в сценарии. Сценарий перезапускается.</span></div>
     <div class="opt"><span class="lbl">Правила темноты</span>${radio('darkRules', [
       ['true', 'включены: по цели в темноте только вплотную, стоящий в темноте получает порог промаха 5'],
       ['false', 'выключены (для сравнения)'],
@@ -208,6 +208,22 @@ export function openRules() {
               for (let r = 0; r < 3; r++) for (const k of order) if (cnt[k] > r) out.push(k);
               SET.party = out;
               saveSet();
+              if (!SIMULATING && SCN[S.scn]) loadScenario(S.scn);
+            }),
+        );
+      $('#mbox')
+        .querySelectorAll('button[data-preset]')
+        .forEach(
+          b =>
+            (b.onclick = () => {
+              const list = b.dataset.preset.split(',').filter(k => T[k]);
+              SET.party = list;
+              saveSet();
+              $('#mbox')
+                .querySelectorAll('input[data-party]')
+                .forEach(x => {
+                  x.value = list.filter(k => k === x.dataset.party).length;
+                });
               if (!SIMULATING && SCN[S.scn]) loadScenario(S.scn);
             }),
         );
