@@ -44,8 +44,11 @@ export function painOf(u: Unit) {
   return Math.max(0, Math.min(limOf(u) + 1, u.maxHp - Math.max(0, u.hp)));
 }
 
-/* Боль мешает действовать: −1 к атакам и способностям за каждые 2 Боли. */
+export const isBerserk = (u: Unit) => !!u && !u.down && !!(T[u.tpl] && T[u.tpl].berserk) && painOf(u) >= 4;
+
+/* Боль мешает действовать: −1 к атакам и способностям за каждые 2 Боли (в Берсерке штраф не действует). */
 export function painPen(u: Unit) {
+  if (isBerserk(u)) return 0;
   return Math.floor(Math.min(limOf(u), painOf(u)) / Math.max(1, TBL().painStep));
 }
 export const onEdge = (u: Unit) => !!u && u.side === 'pc' && !u.down && u.hp <= 1;
@@ -181,6 +184,10 @@ export function enterEdge(u: Unit) {
   interrupt(u, 'на пороге');
   u.prep = null;
   u.prone = true;
+  if (u.effects && u.effects.some(e => e.type === 'example')) {
+    u.effects = u.effects.filter(e => e.type !== 'example');
+    ev(`⭐ Личный пример ${uName(u)} сорван (Порог Боли)`);
+  }
   if (u.st) u.st.unst = 0;
   u.od = SET.edgeLast ? 0 : Math.min(u.od || 0, 1);
   u._edgeMark = S.round + ':' + S.phaseIdx;

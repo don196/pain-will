@@ -15,7 +15,18 @@ import { ev, sleep, uName } from './log';
 import { takeVuln, weakMag } from './magic';
 import { onEdge, painInfo, painPen, painTxt, painWear, wClass } from './pain';
 import { ap3Degree, defThr, dexFree, isSpell } from './reactions';
-import { actId, dmgAfter, getEff, hasEff, hitCalc, modsStr, pContest, removeEff, reqOk, stat } from './stats';
+import { actId, dmgAfter, effMag, getEff, hasEff, hitCalc, modsStr, pContest, removeEff, reqOk, stat } from './stats';
+import {
+  armDisabled,
+  armWoundPen,
+  breakExample,
+  disarmTarget,
+  exampleBonus,
+  hasWeaponAvailable,
+  hasWorkingArm,
+  isBerserk,
+  isDuelVs,
+} from './heroes';
 import { AREAS, addWound, syncBleed, vital, woundPenTxt } from './wounds';
 import { SET, TBL } from '../settings';
 import { S, byId, friends, hostiles } from '../state';
@@ -49,7 +60,7 @@ export function legSpeedPen(u: Unit) {
   let p = 0;
   for (const l of ['legL', 'legR']) {
     const s = partSt(u, l);
-    p += s >= 3 ? 2 : s;
+    p += s >= 3 ? 2 : isBerserk(u) ? 0 : s;
   }
   return p;
 }
@@ -57,7 +68,7 @@ export function legDodgePen(u: Unit) {
   let p = 0;
   for (const l of ['legL', 'legR']) {
     const s = partSt(u, l);
-    p += s >= 3 ? 8 : 2 * s;
+    p += s >= 3 ? 8 : isBerserk(u) ? 0 : 2 * s;
   }
   return p;
 }
@@ -80,6 +91,7 @@ export function setProne(u: Unit, why?) {
   if (u.down || u.prone) return;
   interrupt(u, 'падение');
   u.prone = true;
+  breakExample(u, 'сбит с ног');
   if (u.st) u.st.unst = 0;
   ev(`⤵ ${uName(u)} сбит с ног${why ? ' — ' + why : ''}: −5 к обычным атакам и активной защите, встать — 1 ОД`);
   view.fxText(u, 'сбит', 'info');
@@ -262,11 +274,29 @@ export function v2AtkMods(u: Unit, act: Action, m, t) {
       v: -weakMag(u),
     });
   if (!act.magic && act.kind === 'attack') {
-    const s = partSt(u, 'armR');
-    if (s && s < 3)
+    const ap = armWoundPen(u, { twoArms: !!act.twoArms, eitherArm: !!act.eitherArm });
+    if (ap)
       m.push({
         l: 'рана руки',
-        v: -2 * s,
+        v: -ap,
+      });
+  }
+  if (isBerserk(u) && (act.kind === 'attack' || act.kind === 'pair') && !act.ranged && !act.magic)
+    m.push({
+      l: 'Берсерк',
+      v: 2,
+    });
+  if ((act.kind === 'attack' || act.kind === 'pair') && hasEff(u, 'bloodCut'))
+    m.push({
+      l: 'Кровавый надрез',
+      v: 2,
+    });
+  if (act.kind === 'attack' || act.kind === 'pair') {
+    const eb = exampleBonus(u);
+    if (eb)
+      m.push({
+        l: 'Личный пример',
+        v: eb,
       });
   }
   if (act.cbonus)
@@ -287,9 +317,11 @@ export function wtOf(act: Action) {
   return (act.reach || 1) > 1 ? 4 : 2;
 }
 export function meleeInHand(u: Unit) {
+  if (u.disarmed) return null;
   for (const id of u.acts) {
     const a = A[id];
-    if (!a || a.kind !== 'attack' || a.ranged || a.magic || a.fixed != null || id === 'improv') continue;
+    if (!a || a.kind !== 'attack' || a.ranged || a.magic || a.fixed != null || a.complex || a.noPain || a.requiresCharge || id === 'improv') continue;
+    if (!hasWeaponAvailable(u, a)) continue;
     if (a.w && u.wield && a.w !== u.wield && weaponsOf(u).length > 1) continue;
     return id;
   }
@@ -326,30 +358,35 @@ export function v2DefOptions(def: Unit, att: Unit, act: Action, opt) {
       if (wl === 2) m.push({ l: 'глубокая вода', v: -8 });
       else if (wl === 1 && m.some(x => x.l === 'Ловкость')) m.push({ l: 'мелкая вода', v: -3 });
     }
+    if (hasEff(def, 'lazarFaith')) m.push({ l: 'Слово «Вера»', v: effMag(def, 'lazarFaith') || 2 });
+    const eb = exampleBonus(def);
+    if (eb) m.push({ l: 'Личный пример', v: eb });
     return m;
   };
-  const m = [
-    {
-      l: 'Ловкость',
-      v: stat(def, 'dex'),
-    },
-  ];
-  if (immobile(def))
-    m.push({
-      l: 'обездвижен',
-      v: -3,
+  if (!isBerserk(def)) {
+    const m = [
+      {
+        l: 'Ловкость',
+        v: stat(def, 'dex'),
+      },
+    ];
+    if (immobile(def))
+      m.push({
+        l: 'обездвижен',
+        v: -3,
+      });
+    const lp = legDodgePen(def);
+    if (lp)
+      m.push({
+        l: 'рана ноги',
+        v: -lp,
+      });
+    out.push({
+      mode: 'dodge',
+      name: 'Уклонение',
+      mods: common(m),
     });
-  const lp = legDodgePen(def);
-  if (lp)
-    m.push({
-      l: 'рана ноги',
-      v: -lp,
-    });
-  out.push({
-    mode: 'dodge',
-    name: 'Уклонение',
-    mods: common(m),
-  });
+  }
   if (!fullDef(def)) return out;
   const wt = wtOf(act);
   if (def.shield > 0 && partSt(def, 'armL') < 3 && lassoPart(def) !== 'armL') {
@@ -397,9 +434,7 @@ export function v2DefOptions(def: Unit, att: Unit, act: Action, opt) {
     !act.noParry &&
     !tplFlag(def,'noParry') &&
     meleeInHand(def) &&
-    partSt(def, 'armR') < 3 &&
-    lassoPart(def) !== 'armR' &&
-    def.grabbedArm !== 'armR'
+    (tplFlag(def, 'dualWield') ? hasWorkingArm(def) : !armDisabled(def, 'armR'))
   ) {
     const m = [
       {
@@ -407,26 +442,28 @@ export function v2DefOptions(def: Unit, att: Unit, act: Action, opt) {
         v: mast(def),
       },
     ];
-    if (SET.parryDiff) {
-      /* вариант 4.5: штраф — разница условных весов оружия защитника и атакующего */
-      const W = TBL().parryW,
-        dw = A[meleeInHand(def)],
-        diff = dw ? Math.abs((W[wClass(def, dw)] || 3) - (W[wClass(att, act)] || 3)) : 0;
-      if (diff)
+    if (!isDuelVs(def, att)) {
+      if (SET.parryDiff) {
+        /* вариант 4.5: штраф — разница условных весов оружия защитника и атакующего */
+        const W = TBL().parryW,
+          dw = A[meleeInHand(def)],
+          diff = dw ? Math.abs((W[wClass(def, dw)] || 3) - (W[wClass(att, act)] || 3)) : 0;
+        if (diff)
+          m.push({
+            l: 'разница весов',
+            v: -diff,
+          });
+      } else if (wt)
         m.push({
-          l: 'разница весов',
-          v: -diff,
+          l: 'вес оружия',
+          v: -wt,
         });
-    } else if (wt)
-      m.push({
-        l: 'вес оружия',
-        v: -wt,
-      });
-    const s = partSt(def, 'armR');
-    if (s)
+    }
+    const ap = armWoundPen(def, { eitherArm: tplFlag(def, 'dualWield') });
+    if (ap)
       m.push({
         l: 'рана руки',
-        v: -2 * s,
+        v: -ap,
       });
     if (def.effects.some(e => e.type === 'bucklerOpen')) m.push({ l: 'Подбив баклером', v: -3 });
     out.push({
@@ -437,7 +474,22 @@ export function v2DefOptions(def: Unit, att: Unit, act: Action, opt) {
   }
   return out;
 }
-export const V2_EFF = new Set(['blind2', 'mute', 'weak2', 'vuln2', 'fmark', 'magsight', 'lasso', 'spots', 'ordnow']);
+export const V2_EFF = new Set([
+  'blind2',
+  'mute',
+  'weak2',
+  'vuln2',
+  'fmark',
+  'magsight',
+  'lasso',
+  'spots',
+  'ordnow',
+  'bloodCut',
+  'lazarFaith',
+  'bleedStop',
+  'example',
+  'duelStance',
+]);
 
 /* Активная защита 2.0: один из трёх способов против уже выпавшего броска атаки. Неудача ничего не ухудшает. */
 export async function v2Defend(def: Unit, att: Unit, act: Action, total, pas, opt) {
@@ -447,9 +499,10 @@ export async function v2Defend(def: Unit, att: Unit, act: Action, total, pas, op
   for (const o of ops) o.free = o.mode === 'dodge' && dexFree(def);
   const dth = defThr(def, act);
   for (const o of ops) {
+    const cThr = o.mode === 'parry' && isDuelVs(def, att) ? 1 : 5;
     o.m = sum(o.mods);
     o.p = Math.max(0, Math.min(1, (21 - Math.max(dth + 1, total - o.m + 1)) / 20));
-    o.pc = o.mode === 'dodge' ? 0 : Math.max(0, Math.min(1, (21 - Math.max(dth + 1, total - o.m + 5)) / 20));
+    o.pc = o.mode === 'dodge' ? 0 : Math.max(0, Math.min(1, (21 - Math.max(dth + 1, total - o.m + cThr)) / 20));
     if (dth) ((o.mods = o.mods.concat([])), (o.thr = dth));
   }
   let ch;
@@ -490,6 +543,7 @@ export async function v2Defend(def: Unit, att: Unit, act: Action, total, pas, op
     S.stat.v2def = S.stat.v2def || {};
     S.stat.v2def[o.mode] = (S.stat.v2def[o.mode] || 0) + 1;
   }
+  const cThr = o.mode === 'parry' && isDuelVs(def, att) ? 1 : 5;
   return {
     mode: o.mode,
     name: o.name,
@@ -499,7 +553,7 @@ export async function v2Defend(def: Unit, att: Unit, act: Action, total, pas, op
     ok,
     margin,
     thrFail,
-    counter: ok && o.mode !== 'dodge' && margin >= 5 ? (margin >= 10 ? 10 : 5) : 0,
+    counter: ok && o.mode !== 'dodge' && margin >= cThr ? (margin >= 10 ? 10 : 5) : 0,
   };
 }
 
@@ -597,6 +651,8 @@ export async function v2OnHit(att: Unit, act: Action, def: Unit, deg, dmg, x, hb
   if (act.ptyp === 'fire') igniteTerr(def.x, def.y);
   const ck = act.coughDeg ? act.coughDeg[deg.t] || 0 : act.cough;
   if (ck && !def.down) addSt(def, 'cough', ck * dbl, act.name);
+  if (act.feintRipple && !def.down) addSt(def, 'ripple', act.feintRipple * dbl, act.name);
+  if (act.disarm && dmg > 0 && !def.down) disarmTarget(att, def);
   if (def.down) return;
   const fm = getEff(def, 'fmark');
   if (fm && basic && att.side !== def.side && att.id !== fm.by) {

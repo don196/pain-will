@@ -187,6 +187,7 @@ kbd{font:400 10px var(--mono);border:1px solid var(--rule);border-radius:2px;pad
 .tok3.peek .gr{box-shadow:inset 0 0 0 2px var(--bone),0 0 0 2px var(--bone)}
 .tok3.vuln .gr::after{content:"";position:absolute;inset:-22%;border-radius:50%;border:2px dashed #ffd35a;animation:spin 6s linear infinite}
 .tok3.fmark .gr::before{content:"";position:absolute;inset:-10%;border-radius:50%;box-shadow:0 0 10px 3px rgba(255,120,40,.9),inset 0 0 8px 2px rgba(255,150,60,.8)}
+.tok3.berserk .gr{box-shadow:inset 0 0 0 2px #ff5a36,0 0 12px 3px rgba(255,70,40,.7)}
 .tok3.snare .gr{box-shadow:inset 0 0 0 2px var(--sidec),0 0 0 3px #9aa3ad;outline:2px dashed #9aa3ad;outline-offset:3px}
 .tok3 .fig{position:absolute;left:0;top:0;width:calc(var(--cell)*.56);height:calc(var(--cell)*.61);transform:translate(-50%,-92%);transform-origin:50% 92%;pointer-events:auto;cursor:pointer;transition:transform .25s,filter .25s;filter:drop-shadow(0 2px 2px rgba(0,0,0,.8))}
 .tok3 .fig svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
@@ -267,6 +268,10 @@ kbd{font:400 10px var(--mono);border:1px solid var(--rule);border-radius:2px;pad
 .fxc.k-vuln{background:#e2b93b;color:#201a05}.fxc.k-weak{background:#6c44aa}
 .fxc.k-lasso,.fxc.k-hold,.fxc.k-snare,.fxc.k-grab{background:#7a7262}.fxc.k-spots{background:#b8405f}
 .fxc.k-ord,.fxc.k-prep,.fxc.k-cover,.fxc.k-msight{background:#1f8371}
+.fxc.k-berserk{background:#c82d1f;box-shadow:0 0 0 1px #ff9a76}.fxc.k-bcut{background:#942121}
+.fxc.k-disarm{background:#5c5c66;color:#ffd0c4}.fxc.k-stigma{background:#7d2638;color:#ffd8df}
+.fxc.k-faith{background:#2d7894;color:#d6f5ff}.fxc.k-example{background:#c28a1d;color:#fff7d6}
+.fxc.k-duel{background:#3a6a8a;color:#e4f4ff}
 .tok3 .fxn{display:none;position:absolute;right:calc(var(--cell)*.42);top:calc(var(--cell)*-1);background:rgba(12,16,22,.96);border:1px solid #2a3340;border-radius:5px;padding:5px 7px;box-shadow:0 6px 18px rgba(0,0,0,.8);white-space:nowrap}
 .tok3.hov .fxn:not(:empty),.tok3.peek .fxn:not(:empty){display:block}
 .tok3.hov{z-index:950!important}

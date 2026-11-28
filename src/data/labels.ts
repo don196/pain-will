@@ -60,6 +60,11 @@ Object.assign(EFF_RU, {
   lasso: 'Силок',
   spots: 'Слабые места',
   ordnow: 'Приказ «Сейчас!»',
+  bloodCut: 'Кровавый надрез (+2 к атаке)',
+  lazarFaith: 'Слово «Вера» (+2 к защите)',
+  bleedStop: 'Кровотечение остановлено',
+  example: 'Личный пример',
+  duelStance: 'Дуэльная стойка',
 });
 export const DIR_RU = ['→ восток', '↗ северо-восток', '↖ северо-запад', '← запад', '↙ юго-запад', '↘ юго-восток'];
 export const AREA_RU = {
@@ -84,6 +89,9 @@ export const WNAME = {
   prisonKnife: 'нож',
   prisonChain: 'цепь',
   prisonClub: 'дубина',
+  ragnaSword: 'меч',
+  staff: 'посох',
+  rapier: 'рапира',
 };
 export const PCLS_RU = {
     light: 'лёгкое',
@@ -119,6 +127,12 @@ export const AI_RU = {
   pPrisonKnife: 'Узник: нож и Отскок',
   pPrisonChain: 'Узник: цепь и Раскрутка',
   pPrisonJailer: 'Тюремщик: захват руки',
+  v2conrad: 'Как Конрад',
+  v2helga: 'Как Хельга',
+  v2walter: 'Как Вальтер',
+  v2ragna: 'Как Рагна',
+  v2lazar: 'Как Лазарь',
+  v2bernhard: 'Как Бернхард',
 };
 export const KIND_RU = {
   throw: 'факел',
@@ -144,4 +158,11 @@ export const KIND_RU = {
   prisonCircle: 'круговая атака',
   prisonGrab: 'силовой захват',
   prisonRelease: 'отпустить захват',
+  ragnaCharge: 'прорыв с ударом',
+  ragnaCut: 'надрез',
+  lazarWord: 'слово Литургии',
+  lazarMortify: 'умерщвление',
+  bernhardLunge: 'выпад',
+  bernhardDuel: 'стойка',
+  pickup: 'подобрать оружие',
 };

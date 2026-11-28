@@ -45,12 +45,29 @@ import {
   torchAt,
   unitAt,
 } from './geometry';
-import { chooseSnarePart, doEscapeLasso, immobile, lassoPart, lassoTarget, releaseLasso } from './lasso';
+import { chooseSnarePart, doEscapeLasso, immobile, lassoTarget, releaseLasso } from './lasso';
 import { hiddenFrom } from './light';
 import { ev, log, sleep, uName } from './log';
 import { doCurse2, doFlash, fireLine, fireSources, spellRoll, validFlash } from './magic';
 import { doRevive, edgeOk, limOf, onEdge, painOf } from './pain';
 import { escapePrisonGrip, prisonChainCircle, prisonChainIntercept, releasePrisonGrip, tryPrisonGrab } from './prisoners';
+import {
+  armDisabled,
+  canBernhardLunge,
+  canPickupWeapon,
+  canRagnaCharge,
+  doBernhardDuel,
+  doBernhardLunge,
+  doLazarMortify,
+  doLazarWord,
+  doPickupWeapon,
+  doRagnaCharge,
+  doRagnaCut,
+  hasBothArms,
+  hasWeaponAvailable,
+  hasWorkingArm,
+  mortifyAreas,
+} from './heroes';
 import { reactWants } from './reactions';
 import { checkDegree, getEff, hasEff, hitCalc, modsStr, removeEff, reqOk, speedOf, stat } from './stats';
 import { doBandage, needsCare, openWounds, syncBleed } from './wounds';
@@ -62,7 +79,7 @@ export function isHuman(side) {
   if (S.sim) return false;
   return side === 'pc' || SET.enemyCtrl === 'manual';
 }
-export const BUILTIN = ['swap', 'door', 'unlasso', 'revive', 'objectStrike', 'objectPush', 'coverFull'];
+export const BUILTIN = ['swap', 'door', 'unlasso', 'pickupWeapon', 'revive', 'objectStrike', 'objectPush', 'coverFull'];
 /* Предметы окружения — действия героев (как в 4.5). */
 export const TERR_ACTS = ['objectStrike', 'objectPush', 'coverFull'];
 export function weaponsOf(o) {
@@ -129,8 +146,25 @@ export function okAct(u: Unit, id, raw?) {
     return false;
   if (a.requiresShield && !u.shield) return false;
   if (['move'].includes(a.kind) && hasEff(u, 'lasso')) return false;
-  if (ATTACK_KINDS.includes(a.kind) && !a.magic && !a.lasso && (partSt(u, 'armR') >= 3 || lassoPart(u) === 'armR' || u.grabbedArm === 'armR'))
+  if (!hasWeaponAvailable(u, a)) return false;
+  if (a.twoArms && !hasBothArms(u)) return false;
+  else if (a.eitherArm && !hasWorkingArm(u)) return false;
+  else if (
+    (ATTACK_KINDS.includes(a.kind) || ['bernhardLunge', 'bernhardDuel'].includes(a.kind)) &&
+    !a.magic &&
+    !a.lasso &&
+    !a.eitherArm &&
+    !a.twoArms &&
+    armDisabled(u, 'armR')
+  )
     return false;
+  if (
+    (a.kind === 'ragnaCharge' || a.kind === 'bernhardLunge') &&
+    (u.prone || immobile(u) || (partSt(u, 'legL') >= 3 && partSt(u, 'legR') >= 3))
+  )
+    return false;
+  if (a.kind === 'lazarMortify' && !mortifyAreas(u).length) return false;
+  if (a.kind === 'pickup' && !canPickupWeapon(u)) return false;
   const snared = hasEff(u, 'snare') || hasEff(u, 'lasso') || u.grabbedBy != null;
   if (['move'].includes(a.kind) && snared) return false;
   if (a.ammo && !((u.ammo || {})[id] > 0)) return false;
@@ -187,11 +221,16 @@ export function canTarget0(u: Unit, act: Action, t, from, friendly?) {
   if (act.kind === 'bandage') return t.side === u.side && (d === 0 || (d === 1 && adjOk(from, t))) && needsCare(t);
   if (act.kind === 'cauterHeal')
     return t.side === u.side && (d === 0 || (d === 1 && adjOk(from, t))) && openWounds(t).length > 0;
+  if (act.kind === 'lazarWord' && act.ally) return t.side === u.side && d <= (act.range || 3);
   if (t.id === u.id) return false;
   if (act.kind === 'swap') return t.side === u.side && d === 1 && adjOk(from, t) && sz(t) === 1 && true && true && true;
   if (act.kind === 'ordnow' || act.kind === 'ordback')
     return t.side === u.side && d <= (act.range || 2) && (act.kind === 'ordnow' || !immobile(t));
   if (!friendly && t.side === u.side) return false;
+  if (act.kind === 'lazarWord') return d <= (act.range || 3) && !hiddenFrom(u, t, from) && los(from, t, u, { noUnits: true }).ok;
+  if (act.kind === 'ragnaCharge') return canRagnaCharge(u, t, from);
+  if (act.kind === 'bernhardLunge') return canBernhardLunge(u, t, from);
+  if (act.kind === 'bernhardDuel') return d === 1 && adjOk(from, t);
   if (act.kind === 'push') return d === 1 && adjOk(from, t) && sz(t) === 1;
   if (act.kind === 'prisonGrab') return d === 1 && adjOk(from, t) && t.side !== u.side && t.grabbedBy == null;
   if (act.kind === 'curse2' || act.kind === 'habits') {
@@ -334,7 +373,17 @@ export function hasTargets(u: Unit, id) {
     case 'push':
     case 'curse2':
     case 'habits':
+    case 'ragnaCharge':
+    case 'bernhardLunge':
+    case 'bernhardDuel':
       return targetsFor(u, id).length > 0;
+    case 'lazarWord':
+      return a.ally ? [u, ...friends(u)].some(o => canTarget(u, a, o)) : targetsFor(u, id).length > 0;
+    case 'pickup':
+      return canPickupWeapon(u);
+    case 'ragnaCut':
+    case 'lazarMortify':
+      return true;
     case 'ordnow':
     case 'ordback':
       return friends(u).some(o => canTarget(u, a, o));
@@ -384,6 +433,10 @@ export async function perform(u: Unit, id, tgt?) {
       'ordback',
       'revive',
       'prisonGrab',
+      'ragnaCharge',
+      'bernhardLunge',
+      'bernhardDuel',
+      'lazarWord',
     ].includes(a.kind) &&
     tgt &&
     !canTarget(u, a, tgt)
@@ -433,7 +486,7 @@ export async function perform(u: Unit, id, tgt?) {
     u.ammo = u.ammo || {};
     u.ammo[id] = Math.max(0, (u.ammo[id] || 0) - 1);
   }
-  if (ATTACK_KINDS.includes(a.kind)) {
+  if (ATTACK_KINDS.includes(a.kind) || ['ragnaCharge', 'bernhardLunge'].includes(a.kind)) {
     u.mustAttack = false;
     u._atk = true;
   }
@@ -482,6 +535,27 @@ export async function perform(u: Unit, id, tgt?) {
       break;
     case 'prisonCircle':
       await prisonChainCircle(u);
+      break;
+    case 'ragnaCharge':
+      await doRagnaCharge(u, tgt);
+      break;
+    case 'ragnaCut':
+      doRagnaCut(u);
+      break;
+    case 'lazarWord':
+      await doLazarWord(u, tgt, a);
+      break;
+    case 'lazarMortify':
+      await doLazarMortify(u);
+      break;
+    case 'bernhardLunge':
+      await doBernhardLunge(u, tgt);
+      break;
+    case 'bernhardDuel':
+      doBernhardDuel(u, tgt);
+      break;
+    case 'pickup':
+      doPickupWeapon(u);
       break;
     case 'push':
       await doPush(u, tgt);
@@ -683,32 +757,34 @@ export async function walk(u: Unit, path, opt: Opts = {}) {
   const hit = new Set();
   if (u.st && u.st.unst) u.st.unst = 0;
   for (const [x, y] of path) {
-    if (SET.zoc && !opt.noZoc && !(await zocStep(u, x, y, hit))) break;
-    if (u.down || (u.prone && path.length > 1 && (u.x !== x || u.y !== y) && hd(u.x, u.y, x, y) !== 1)) break;
+    if (SET.zoc && !opt.noZoc && !(await zocStep(u, x, y, hit, opt))) break;
+    if (u.down || (!opt.charge && u.prone && path.length > 1 && (u.x !== x || u.y !== y) && hd(u.x, u.y, x, y) !== 1))
+      break;
     const pr0 = u.prone;
-    const from = {x:u.x,y:u.y};
+    const from = { x: u.x, y: u.y };
     u.x = x;
     u.y = y;
     terrainStep(u, x, y);
     view.renderTokens();
     await sleep(150);
-    if (u.down || S.over || (u.prone && !pr0)) break;
+    if (u.down || S.over || (!opt.charge && u.prone && !pr0)) break;
     if (trapCheck(u)) break;
     await prisonChainIntercept(u, from);
     if (u.down || S.over) break;
     const wasProne = u.prone;
     await v2PrepCheck(u);
-    if (u.down || S.over || (u.prone && !wasProne) || u.x !== x || u.y !== y) break;
+    if (u.down || S.over || (!opt.charge && u.prone && !wasProne) || u.x !== x || u.y !== y) break;
   }
 }
 
 /* Зона контроля (опция): кто выходит из соседства с противником, получает от него внеочередную базовую атаку оружием. Ходить внутри зоны можно; зоны разных противников независимы; от одного противника — одна атака за перемещение. */
-export async function zocStep(u: Unit, x, y, hit) {
+export async function zocStep(u: Unit, x, y, hit, opt: Opts = {}) {
   const to = posOf(u, x, y);
   const px = u.x,
     py = u.y,
     wp = u.prone;
-  if (!(await shieldControl(u, to, hit)) || u.x !== px || u.y !== py || (u.prone && !wp)) return false;
+  if (!opt.charge && (!(await shieldControl(u, to, hit)) || u.x !== px || u.y !== py || (u.prone && !wp)))
+    return false;
   for (const e of S.units) {
     if (e.down || e.side === u.side || hit.has(e.id) || e.zocRound === S.round || !near1(e, u) || near1(e, to))
       continue;
@@ -741,8 +817,13 @@ export function zocWeapon(e, u: Unit) {
       a.ranged ||
       a.magic ||
       a.fixed != null ||
+      a.complex ||
+      a.noPain ||
+      a.requiresCharge ||
       a.cost > 1 ||
       !reqOk(e, id) ||
+      !hasWeaponAvailable(e, a) ||
+      (a.eitherArm ? !hasWorkingArm(e) : !a.unarmed && armDisabled(e, 'armR')) ||
       (a.needLoad && !e.loaded)
     )
       continue;

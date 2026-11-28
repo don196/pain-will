@@ -1,7 +1,8 @@
 import type { Unit } from '../types';
 import { A } from '../data/actions';
 import { canControl, canTarget, isHuman, trapCells, validCell, validThrow } from '../rules/actions';
-import { stOf } from '../rules/combat';
+import { stOf, tplFlag } from '../rules/combat';
+import { chargeLandingCell, isBerserk, lungeMidCell } from '../rules/heroes';
 import {
   adjOk,
   bfs,
@@ -619,6 +620,25 @@ export function drawFloor() {
       g.fillRect(-cs * 0.22, -cs * 0.03, cs * 0.36, cs * 0.06);
       g.restore();
     }
+  for (const dr of S.dropped || []) {
+    const c = hc(dr.x, dr.y);
+    g.save();
+    g.translate(c.x, c.y + cs * 0.08);
+    g.rotate(-0.5);
+    g.strokeStyle = '#d4dce6';
+    g.lineWidth = Math.max(2, cs * 0.055);
+    g.beginPath();
+    g.moveTo(-cs * 0.22, 0);
+    g.lineTo(cs * 0.2, 0);
+    g.stroke();
+    g.strokeStyle = '#8a6234';
+    g.lineWidth = Math.max(2, cs * 0.06);
+    g.beginPath();
+    g.moveTo(-cs * 0.12, -cs * 0.09);
+    g.lineTo(-cs * 0.12, cs * 0.09);
+    g.stroke();
+    g.restore();
+  }
   if (hasHeights() && !flat) drawLedgeShadows(g);
   /* стены, двери и решётки — от дальних рядов к ближним */
   for (const [x, y] of cellOrder()) {
@@ -735,7 +755,7 @@ export const FIG_SVG = `<svg viewBox="0 0 44 48" aria-hidden="true">
 /* Силуэт по типу бойца: щит, лук, маг, тяжёлый, клинок. */
 export function roleOf(u: Unit) {
   const acts = (u.acts || []).map(id => A[id]).filter(Boolean);
-  if (acts.some(a => a.magic && ['attack', 'curse2'].includes(a.kind))) return 'mage';
+  if (acts.some(a => a.magic && ['attack', 'curse2'].includes(a.kind)) || tplFlag(u, 'liturgy')) return 'mage';
   if (sz(u) > 1 || u.tpl === 'dummyFat') return 'heavy';
   if (acts.some(a => a.kind === 'attack' && a.ranged && !a.magic) && !(u.shield > 0)) return 'bow';
   return 'blade';
@@ -795,6 +815,7 @@ export function renderTokens() {
               [hasEff(u, 'lasso'), 'lasso'],
               [hasEff(u, 'snare'), 'snare'],
               [hasEff(u, 'magsight'), 'msight'],
+              [isBerserk(u), 'berserk'],
               [!!u.prep, 'prep'],
             ]),
       ]
@@ -1145,7 +1166,25 @@ export function renderHL() {
       }
       for (const t of S.units)
         if (canTarget(u, a, t))
-          addU(t, ['swap', 'bandage', 'cauterHeal', 'ordnow', 'ordback', 'revive'].includes(a.kind) ? 'ally' : 'tgt');
+          addU(
+            t,
+            ['swap', 'bandage', 'cauterHeal', 'ordnow', 'ordback', 'revive'].includes(a.kind) ||
+              (a.kind === 'lazarWord' && a.ally)
+              ? 'ally'
+              : 'tgt',
+          );
+      if (S.hover && (a.kind === 'ragnaCharge' || a.kind === 'bernhardLunge')) {
+        const ht = unitAt(S.hover.x, S.hover.y);
+        if (ht && canTarget(u, a, ht)) {
+          if (a.kind === 'bernhardLunge') {
+            const mid = lungeMidCell(u, ht);
+            if (mid) add(mid.x, mid.y, 'path');
+          } else {
+            const land = chargeLandingCell(u, ht);
+            if (land) for (const [px, py] of pathTo(land.dist, land.x, land.y)) add(px, py, 'path');
+          }
+        }
+      }
     }
   }
   if (!S.editor && u && !u.down) addU(u, 'selc');

@@ -10,7 +10,7 @@ import { lassoPart } from './lasso';
 import { ev, log, uName } from './log';
 import { koTick, onEdge, painPrep } from './pain';
 import { odMax } from './reactions';
-import { getEff, stat } from './stats';
+import { getEff, hasEff, stat } from './stats';
 import { bloodAt, needsCare, tickWounds } from './wounds';
 import { SET } from '../settings';
 import { GEN, S, alive, byId, selUnit } from '../state';
@@ -151,6 +151,7 @@ export async function endPhase() {
     if (u.charge && u.charge.readyRound <= S.round) u.charge = null;
     const keep = [];
     for (const e of u.effects) {
+      if (e.thisTurn) continue;
       if (e.left != null && e.at !== marker) {
         e.left--;
         if (e.left <= 0) {
@@ -171,8 +172,8 @@ export async function endPhase() {
       if (S.over) return;
     }
     if (!u.down) terrainEndTurn(u);
-    /* кровотечение (свод 2.4): +1 Боль в конце своего хода, если тяжесть открытых ран 2+ */
-    if (!u.down && u.bleed > 0) {
+    /* кровотечение (свод 2.4): +1 Боль в конце своего хода, если тяжесть открытых ран 2+ (Слово «Милость» может остановить на раунд) */
+    if (!u.down && u.bleed > 0 && !hasEff(u, 'bleedStop')) {
       ev(`🩸 ${uName(u)}: кровотечение (тяжесть ${u.bleed}) — +1 Боль`, { k: 'bleed', u: u.id, n: 1 });
       bloodAt(u, 1);
       applyDamage(u, 1, null);

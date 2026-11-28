@@ -13,7 +13,8 @@ import { ev, log, show, sleep, uName } from './log';
 import { backlash, selfHateHit } from './magic';
 import { painAfterTxt, painInfo, painTxt, painWear, painWound } from './pain';
 import { ap3Degree, canActiveDefend, missThr, nat1Side, nat20Up, resist, spendReact, tryCover } from './reactions';
-import { actId, atkMods, hasEff, modsStr, stat } from './stats';
+import { actId, atkMods, hasEff, modsStr, removeEff, stat } from './stats';
+import { breakExample, triggerExample } from './heroes';
 import { AREAS, addWound } from './wounds';
 import { S, friends, hostiles } from '../state';
 import { HXD, d20, esc, hpx, pick, sgn, sum, sz } from '../util';
@@ -50,6 +51,7 @@ export async function resolveAttack(att: Unit, act: Action, target: Unit, opt: O
   }
   const mods = atkMods(att, act, def),
     pas = act.lasso ? 8 + stat(def, 'dex') : resist(def);
+  if ((act.kind === 'attack' || act.kind === 'pair') && hasEff(att, 'bloodCut')) removeEff(att, 'bloodCut');
   oddRoll(att, mods);
   let M = sum(mods);
   let r = d20(),
@@ -92,6 +94,7 @@ export async function resolveAttack(att: Unit, act: Action, target: Unit, opt: O
     if (S.stat) S.stat.thrMiss = (S.stat.thrMiss || 0) + 1;
     if (cf) backlash(att, act);
     if (n1) nat1Side(att, act);
+    breakExample(att, n1 ? 'натуральная 1' : 'промах');
     /* промах из-за укрытия (верхние 2 пункта порога): снаряд приходится в само укрытие */
     if (!cf && !n1 && act.ranged && th.v && r > th.v - 2 && /укрытие/.test(th.src)) coverHit(att, act, def);
     return;
@@ -256,6 +259,7 @@ export async function resolveAttack(att: Unit, act: Action, target: Unit, opt: O
     att._striking = true;
     applyDamage(def, dmg, att);
     att._striking = false;
+    triggerExample(att, act, deg, opt);
     if (act.metrics === 'bucklerTap' && !def.down) {
       def.effects = def.effects.filter(e => e.type !== 'bucklerOpen');
       def.effects.push({ type: 'bucklerOpen', until: def.id, end: 1e9 });
